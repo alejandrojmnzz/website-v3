@@ -146,6 +146,9 @@ export interface SchemaRef {
 export interface ContentSeo {
   intent?: string;
   pillar?: string;
+  pillar_path?: string | null;
+  is_pillar?: boolean;
+  main_keyword?: string | null;
   focus_features?: string[];
 }
 

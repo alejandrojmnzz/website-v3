@@ -1209,6 +1209,35 @@ export class DatabaseManager {
       return false;
     }
   }
+
+  /** Sync read of cached mapped items for seo-index rebuild (empty when cache is cold). */
+  getMappedItemsFromCacheSync(contentType: string): Record<string, unknown>[] {
+    const ctConfig = getContentTypeConfig(contentType, this.contentRoot);
+    if (!ctConfig?.database?.slug) return [];
+    const dbName = ctConfig.database.slug;
+    if (!this.exists(dbName)) return [];
+
+    const memEntry = this.memoryCache.get(dbName);
+    let rawItems: Record<string, unknown>[] | undefined = memEntry?.data?.items as
+      | Record<string, unknown>[]
+      | undefined;
+    if (!rawItems?.length) {
+      const cached = this.cache.read(dbName, Infinity);
+      rawItems = cached?.items as Record<string, unknown>[] | undefined;
+    }
+    if (!rawItems?.length) return [];
+
+    const ctMapping = getFieldMapping(contentType, this.contentRoot);
+    const fullMapping = getFullFieldMapping(contentType, this.contentRoot);
+    if (
+      (!ctMapping || Object.keys(ctMapping).length === 0) &&
+      !fullMapping?.[RESERVED_IMAGE_FIELD] &&
+      !fullMapping?.[RESERVED_SLUG_FIELD]
+    ) {
+      return rawItems;
+    }
+    return applyContentTypeMapping(rawItems, ctMapping || {}, contentType, fullMapping);
+  }
 }
 
 /** Cached mapped row count for a database (0 when configured but not yet fetched). */

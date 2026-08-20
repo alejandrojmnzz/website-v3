@@ -578,7 +578,7 @@ function SeoFieldsEditor({
               </Popover>
             </div>
             <p className="text-xs">
-              Choose a hub or type a path. Empty = not in a cluster.
+              Choose a hub or type a path. Empty = cluster gap; null = intentional opt-out.
             </p>
             {isVariantLayer && (
               <p className="text-xs" data-testid="text-pillar-chooser-variant-live">

@@ -10,6 +10,7 @@ import {
   listExtraUrlPatternParams,
   normalizeHreflangMap,
   normalizeHreflangLocaleKey,
+  normalizeContentTypeFieldConfig,
   resolveHreflangsFromRecord,
   resolveUrlPatternWithMapping,
   resetRegistry,
@@ -289,5 +290,18 @@ describe("getHreflangsSource / resolveHreflangsFromRecord", () => {
       contentRoot,
     );
     expect(map).toBeNull();
+  });
+});
+
+describe("normalizeContentTypeFieldConfig locale indexes", () => {
+  it("strips lang, locale, and language from explicit indexes", () => {
+    const normalized = normalizeContentTypeFieldConfig(
+      { _slug: "slug", _locale: "locale", title: "title" },
+      {
+        isDbBacked: false,
+        indexes: ["status", "lang", "locale", "language", "category"],
+      },
+    );
+    expect(normalized.indexes).toEqual(["status", "category"]);
   });
 });

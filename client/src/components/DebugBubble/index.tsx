@@ -10,7 +10,7 @@ import { normalizeLocale, buildContentUrlFromPattern } from "@/lib/locale";
 import { useContentTypes, getFolderFromType, useContentTypesRaw } from "@/hooks/useContentTypes";
 import { consensusSitemapContentType, contentTypeForSitemapFolder } from "@/lib/content-type-routes";
 import { isSharedLayoutType } from "@/lib/sharedLayoutEntry";
-import { computeDirtyMetaKeys } from "@/lib/buildMetaSaveOperations";
+import { computeDirtyMetaKeys, liveSnippetClearBlocked } from "@/lib/buildMetaSaveOperations";
 import { useSeoModalSaves } from "@/hooks/useSeoModalSaves";
 import type { SeoMeta } from "@/components/DebugBubble/types";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
@@ -2493,7 +2493,6 @@ export function DebugBubble() {
         setSeoLocationSearch={setSeoLocationSearch}
         baselineLocations={locationsBaseline}
         saving={seoSaves.saving}
-        isLiveSnippetLocked={seoSaves.isLiveSnippetLocked}
         onSaveLocations={async (locs) => {
           await seoSaves.saveLocations(locs);
           setLocationsBaseline([...locs]);
@@ -2508,12 +2507,23 @@ export function DebugBubble() {
           });
         }}
         onSaveSnippet={seoSaves.saveSnippet}
+        onRevertSnippet={() => {
+          applySeoMetaFromForm({
+            ...seoMeta,
+            page_title: seoBaselineMetaRef.current.page_title,
+            description: seoBaselineMetaRef.current.description,
+          });
+        }}
         onSaveCanonical={seoSaves.saveCanonical}
         onSaveOgImage={seoSaves.saveOgImage}
-        onConvertToDraft={seoSaves.convertToDraft}
         visibilityDirty={["robots", "priority", "change_frequency"].some((k) =>
           seoDirtyKeys.has(k),
         )}
+        snippetDirty={["page_title", "description"].some((k) => seoDirtyKeys.has(k))}
+        snippetSaveBlocked={
+          seoSaves.isLiveLocale &&
+          liveSnippetClearBlocked(seoMeta, seoDirtyKeys)
+        }
         canonicalDirty={seoDirtyKeys.has("canonical_url")}
         newSlugValue={newSlugValue}
         setNewSlugValue={setNewSlugValue}

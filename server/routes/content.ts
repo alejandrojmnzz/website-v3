@@ -1691,6 +1691,7 @@ export function registerContentRoutes(app: Express): void {
         protected_slugs: config.protected_slugs || [],
         preview: config.preview || null,
         schema_org_requirements: config.schema_org_requirements || [],
+        seo_monitoring: config.seo_monitoring || null,
         static_entry_count: getCI(res).findByType(type).length,
       });
     } catch (err) {
@@ -2035,6 +2036,20 @@ export function registerContentRoutes(app: Express): void {
       if (willHaveDb) {
         update.single_template = true;
       }
+      if (body.seo_monitoring !== undefined) {
+        if (body.seo_monitoring === null) {
+          update.seo_monitoring = null;
+        } else if (typeof body.seo_monitoring === "object") {
+          const sm = body.seo_monitoring as Record<string, unknown>;
+          update.seo_monitoring = {
+            enabled: sm.enabled === true,
+            require_cluster: sm.require_cluster === true,
+          };
+        } else {
+          res.status(400).json({ error: "seo_monitoring must be an object or null" });
+          return;
+        }
+      }
 
       try {
         updateContentTypeConfig(type, update, getContentRoot(res));
@@ -2047,6 +2062,20 @@ export function registerContentRoutes(app: Express): void {
         throw err;
       }
       getCI(res).invalidateCommonFields(type);
+
+      if (body.seo_monitoring !== undefined) {
+        try {
+          const { invalidateSeoIndexCache, rebuildSeoIndex } = await import("../seo-index");
+          invalidateSeoIndexCache();
+          rebuildSeoIndex({
+            contentRoot: getContentRoot(res),
+            reason: "seo_monitoring_toggle",
+            mark: false,
+          });
+        } catch (seoErr) {
+          log.warn({ seoErr, type }, "seo-index rebuild after monitoring toggle failed");
+        }
+      }
 
       // When enabling shared layout, dissolve bindings for this type (bindings and templates don't mix)
       let bindingsDissolved: unknown = undefined;

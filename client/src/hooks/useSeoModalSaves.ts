@@ -3,7 +3,6 @@ import type { SeoMeta } from "@/components/DebugBubble/types";
 import { useToast } from "@/hooks/use-toast";
 import { computeDirtyMetaKeys } from "@/lib/buildMetaSaveOperations";
 import {
-  convertLocaleToDraft,
   saveLandingLocations,
   saveOptionalMetaFields,
   saveSnippetMeta,
@@ -17,7 +16,6 @@ export type SeoModalSavingFlags = {
   snippet?: boolean;
   canonical?: boolean;
   ogImage?: boolean;
-  convertToDraft?: boolean;
 };
 
 export type UseSeoModalSavesOpts = {
@@ -138,6 +136,7 @@ export function useSeoModalSaves(opts: UseSeoModalSavesOpts) {
         description: error instanceof Error ? error.message : "Could not save title/description.",
         variant: "destructive",
       });
+      throw error;
     } finally {
       setSaving((s) => ({ ...s, snippet: false }));
     }
@@ -202,32 +201,6 @@ export function useSeoModalSaves(opts: UseSeoModalSavesOpts) {
     [metaSaveContext, opts, patchTarget, toast],
   );
 
-  const convertToDraft = useCallback(async () => {
-    if (!opts.contentType || !opts.slug) return;
-    setSaving((s) => ({ ...s, convertToDraft: true }));
-    try {
-      await convertLocaleToDraft({
-        contentType: opts.contentType,
-        slug: opts.slug,
-        locale: opts.locale,
-      });
-      toast({
-        title: "Converted to draft",
-        description: `${opts.locale.toUpperCase()} is unpublished until you publish again.`,
-      });
-      await opts.refetch?.();
-      opts.onSaved?.();
-    } catch (error) {
-      toast({
-        title: "Failed to convert to draft",
-        description: error instanceof Error ? error.message : "Could not convert locale.",
-        variant: "destructive",
-      });
-    } finally {
-      setSaving((s) => ({ ...s, convertToDraft: false }));
-    }
-  }, [opts, toast]);
-
   return {
     saving,
     saveLocations,
@@ -235,7 +208,6 @@ export function useSeoModalSaves(opts: UseSeoModalSavesOpts) {
     saveSnippet,
     saveCanonical,
     saveOgImage,
-    convertToDraft,
-    isLiveSnippetLocked: opts.seoContext === "live",
+    isLiveLocale: opts.seoContext === "live",
   };
 }

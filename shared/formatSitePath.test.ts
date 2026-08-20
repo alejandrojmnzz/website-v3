@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatSitePath } from "./formatSitePath";
+import { formatSitePath, formatSitePathsInText } from "./formatSitePath";
 
 describe("formatSitePath", () => {
   it("strips absolute path under site folder", () => {
@@ -48,5 +48,30 @@ describe("formatSitePath", () => {
         knownSiteFolders: ["custom-folder"],
       }),
     ).toBe("pages/en.yml");
+  });
+});
+
+describe("formatSitePathsInText", () => {
+  it("rewrites absolute paths in REDIRECT_CONFLICT messages", () => {
+    const message =
+      'Redirect conflict: "/landing/ai-engineering-program-ad" is claimed by both ' +
+      '"/Users/me/proj/site_4geeks-com/landings/xx/es.yml" and ' +
+      '"/Users/me/proj/site_4geeks-com/landings/yy/en.yml"';
+    expect(formatSitePathsInText(message)).toBe(
+      'Redirect conflict: "/landing/ai-engineering-program-ad" is claimed by both ' +
+        '"landings/xx/es.yml" and "landings/yy/en.yml"',
+    );
+  });
+
+  it("leaves URL-only quotes unchanged", () => {
+    expect(formatSitePathsInText('Self-redirect detected: "/us/bootcamp" redirects to itself')).toBe(
+      'Self-redirect detected: "/us/bootcamp" redirects to itself',
+    );
+  });
+
+  it("formats a standalone content path", () => {
+    expect(
+      formatSitePathsInText("/Users/me/proj/site_4geeks-com/landings/xx/es.yml"),
+    ).toBe("landings/xx/es.yml");
   });
 });

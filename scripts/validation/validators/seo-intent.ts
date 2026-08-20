@@ -4,6 +4,9 @@ import yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { contentIndex } from "../../../server/content-index";
 import { createPublicUrlResolver } from "../../../server/redirects";
+import { isClusterRequired, isSeoMonitoringEnabled } from "../../../server/seo-monitoring";
+import { loadSeoIndex } from "../../../server/seo-index";
+import { classifyClusterEntry } from "../../../server/seo-cluster-stats";
 
 interface SeoConfig {
   intents: Record<string, { label: string; description: string }>;
@@ -12,11 +15,15 @@ interface SeoConfig {
 }
 
 function loadSeoConfig(contentRoot?: string): SeoConfig | null {
-  const candidates = [
+  const candidates: string[] = [];
+  if (contentRoot) {
+    const root = path.isAbsolute(contentRoot) ? contentRoot : path.join(process.cwd(), contentRoot);
+    candidates.push(path.join(root, "seo-config.yml"));
+  }
+  candidates.push(
     path.join(process.cwd(), "site_4geeks-com", "seo-config.yml"),
     path.join(process.cwd(), "4geeks-com", "seo-config.yml"),
-  ];
-  if (contentRoot) candidates.unshift(path.join(process.cwd(), contentRoot, "seo-config.yml"));
+  );
   const configPath = candidates.find((p) => fs.existsSync(p));
   if (!configPath) return null;
   try {
@@ -27,7 +34,14 @@ function loadSeoConfig(contentRoot?: string): SeoConfig | null {
   }
 }
 
-const PILLAR_CONTENT_TYPES = new Set(["programs", "landing", "landings", "pages", "page", "locations", "location"]);
+function effectivePillar(seo: NonNullable<ValidationContext["contentFiles"][0]["seo"]>): string | null | "opted_out" {
+  if (seo.pillar_path === null) return "opted_out";
+  const fromPath = typeof seo.pillar_path === "string" ? seo.pillar_path.trim() : "";
+  if (fromPath) return fromPath;
+  const legacy = typeof seo.pillar === "string" ? seo.pillar.trim() : "";
+  if (legacy) return legacy;
+  return null;
+}
 
 export const seoIntentValidator: Validator = {
   name: "seo-intent",
@@ -41,7 +55,7 @@ export const seoIntentValidator: Validator = {
     const errors: ValidationIssue[] = [];
     const warnings: ValidationIssue[] = [];
 
-    const config = loadSeoConfig();
+    const config = loadSeoConfig(context.contentRoot);
     if (!config) {
       return {
         name: this.name,
@@ -61,6 +75,8 @@ export const seoIntentValidator: Validator = {
     const validIntents = new Set(Object.keys(config.intents));
     const validFeatures = new Set(Object.keys(config.focus_features));
     const publicUrls = createPublicUrlResolver(contentIndex);
+    const seoIndex = loadSeoIndex(context.contentRoot);
+    const orphanIds = new Set(seoIndex.orphans);
 
     const seen = new Set<string>();
     const pillarRefs = new Map<string, string[]>();
@@ -70,20 +86,18 @@ export const seoIntentValidator: Validator = {
       if (seen.has(key)) continue;
       seen.add(key);
 
+      const monitored = isSeoMonitoringEnabled(file.type, context.contentRoot);
+      const requireCluster = isClusterRequired(file.type, context.contentRoot);
       const seo = file.seo;
-      const contentTypeForCheck = file.type;
-      const isHighPriorityType = contentTypeForCheck === "programs" ||
-        contentTypeForCheck === "landings" ||
-        contentTypeForCheck === "landing";
 
       if (!seo) {
-        if (isHighPriorityType) {
+        if (monitored && requireCluster) {
           warnings.push({
             type: "warning",
-            code: "MISSING_INTENT",
-            message: `No seo block found for ${file.type} page "${file.slug}" (${file.locale})`,
+            code: "ORPHAN_PAGE",
+            message: `${file.type} page "${file.slug}" (${file.locale}) has no seo block — it belongs to no cluster`,
             file: file.filePath,
-            suggestion: `Add a seo: block with intent: and optionally pillar: and focus_features:`,
+            suggestion: "Add a seo: block with pillar_path (hub URL) or pillar_path: null to opt out",
           });
         }
         continue;
@@ -99,38 +113,60 @@ export const seoIntentValidator: Validator = {
             suggestion: `Valid values: ${[...validIntents].join(", ")}`,
           });
         }
-      } else if (isHighPriorityType) {
-        warnings.push({
-          type: "warning",
-          code: "MISSING_INTENT",
-          message: `Missing seo.intent for ${file.type} page "${file.slug}" (${file.locale})`,
-          file: file.filePath,
-          suggestion: `Set seo.intent to one of: ${[...validIntents].join(", ")}`,
-        });
       }
 
-      if (seo.pillar) {
+      if (seo.is_pillar === true) {
+        continue;
+      }
+
+      const pillar = effectivePillar(seo);
+      if (pillar === "opted_out") {
+        continue;
+      }
+
+      if (pillar) {
         const pillarLocale = file.locale === "_common" ? "en" : file.locale;
-        if (!publicUrls.isLive(seo.pillar, pillarLocale)) {
+        if (!publicUrls.isLive(pillar, pillarLocale)) {
+          const hubEntry = Object.values(seoIndex.entries).find(
+            (e) => e.path === pillar || e.pillar_path === pillar,
+          );
+          const reason = hubEntry && !hubEntry.is_pillar ? "hub_not_pillar" : "hub_not_found";
           errors.push({
             type: "error",
             code: "INVALID_PILLAR",
-            message: `seo.pillar "${seo.pillar}" does not resolve to a known page for "${file.slug}" (${file.locale})`,
+            message:
+              reason === "hub_not_pillar"
+                ? `seo.pillar_path "${pillar}" resolves to a live page that is not marked as a pillar hub for "${file.slug}" (${file.locale})`
+                : `seo.pillar_path "${pillar}" does not resolve to a known pillar hub for "${file.slug}" (${file.locale})`,
             file: file.filePath,
-            suggestion: "Check the pillar URL matches a valid page URL in the site",
+            suggestion:
+              reason === "hub_not_pillar"
+                ? "Mark the target page as seo.is_pillar: true or pick another hub URL"
+                : "Check the pillar URL matches a valid pillar hub in the site",
           });
         } else {
-          const refs = pillarRefs.get(seo.pillar) || [];
+          const refs = pillarRefs.get(pillar) || [];
           refs.push(file.slug);
-          pillarRefs.set(seo.pillar, refs);
+          pillarRefs.set(pillar, refs);
         }
-      } else if (isHighPriorityType) {
+      } else if (monitored && requireCluster) {
+        const indexRow = seoIndex.entries[`${file.type}/${file.slug}/${file.locale}`];
+        const bucket = indexRow
+          ? classifyClusterEntry(indexRow, orphanIds)
+          : typeof seo.main_keyword === "string" && seo.main_keyword.trim()
+            ? "partiallySet"
+            : "unclustered";
+        const code = bucket === "partiallySet" ? "PARTIALLY_SET_CLUSTER" : "ORPHAN_PAGE";
+        const detail =
+          bucket === "partiallySet"
+            ? "has seo.main_keyword but no seo.pillar_path"
+            : "has no seo.pillar_path — it belongs to no cluster";
         warnings.push({
           type: "warning",
-          code: "ORPHAN_PAGE",
-          message: `${file.type} page "${file.slug}" (${file.locale}) has no seo.pillar — it belongs to no cluster`,
+          code,
+          message: `${file.type} page "${file.slug}" (${file.locale}) ${detail}`,
           file: file.filePath,
-          suggestion: "Set seo.pillar to the URL of the main topic page this page supports",
+          suggestion: "Set seo.pillar_path to the hub URL, or seo.pillar_path: null to opt out",
         });
       }
 

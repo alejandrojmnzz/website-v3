@@ -46,16 +46,18 @@ export interface SeoModalProps {
   /** Baseline locations list (for auto-save diff). */
   baselineLocations: string[];
   saving: SeoModalSavingFlags;
-  isLiveSnippetLocked: boolean;
   onSaveLocations: (locations: string[]) => Promise<void>;
   onSaveVisibility: () => Promise<void>;
   /** Reset robots / priority / change_frequency to last saved baseline (cancel edit). */
   onRevertVisibility?: () => void;
   onSaveSnippet: () => Promise<void>;
+  /** Reset page_title / description to last saved baseline (cancel snippet edit). */
+  onRevertSnippet?: () => void;
   onSaveCanonical: () => Promise<void>;
   onSaveOgImage: (src: string) => Promise<void>;
-  onConvertToDraft?: () => Promise<void>;
   visibilityDirty?: boolean;
+  snippetDirty?: boolean;
+  snippetSaveBlocked?: boolean;
   canonicalDirty?: boolean;
   newSlugValue: string;
   setNewSlugValue: (v: string) => void;
@@ -148,15 +150,16 @@ export function SeoModal({
   setSeoLocationSearch,
   baselineLocations,
   saving,
-  isLiveSnippetLocked,
   onSaveLocations,
   onSaveVisibility,
   onRevertVisibility,
   onSaveSnippet,
+  onRevertSnippet,
   onSaveCanonical,
   onSaveOgImage,
-  onConvertToDraft,
   visibilityDirty = false,
+  snippetDirty = false,
+  snippetSaveBlocked = false,
   canonicalDirty = false,
   newSlugValue,
   setNewSlugValue,
@@ -197,6 +200,7 @@ export function SeoModal({
     if (!open) {
       setSlugEditing(false);
       setVisibilityEditing(false);
+      setSnippetEditing(false);
     }
   }, [open]);
 
@@ -514,47 +518,11 @@ export function SeoModal({
                   on the <strong>Fields</strong> tab (<code className="font-mono">{"{{ single.* }}"}</code>).
                 </p>
                 <p>
-                  Each section saves independently — visibility and locations patch without republishing; title and
-                  description on a <strong>live</strong> locale require convert-to-draft first.
+                  Each section saves independently — visibility, locations, and snippet patch{" "}
+                  <code className="font-mono">meta.*</code> on live without republishing. Title and
+                  description cannot be <strong>cleared</strong> on a live locale.
                 </p>
               </div>
-
-              {isLiveSnippetLocked && (
-                <div
-                  className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs space-y-2"
-                  data-testid="banner-live-snippet-locked"
-                >
-                  <p>
-                    <strong>Live locale.</strong> Title and description are locked while{" "}
-                    <code className="font-mono">{fieldsLocale}.yml</code> is published. Convert to draft to edit the
-                    snippet, then publish when ready.
-                  </p>
-                  {onConvertToDraft && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={!!saving.convertToDraft}
-                      onClick={() => void onConvertToDraft()}
-                      data-testid="button-convert-to-draft-snippet"
-                    >
-                      {saving.convertToDraft ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-                      ) : null}
-                      Convert {fieldsLocale.toUpperCase()} to draft
-                    </Button>
-                  )}
-                  <Collapsible>
-                    <CollapsibleTrigger className="flex items-center gap-1 text-muted-foreground hover:text-foreground">
-                      <ChevronDown className="h-3.5 w-3.5" />
-                      Read more (advanced)
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="text-muted-foreground mt-1 space-y-0.5 font-mono">
-                      <p>server/live-entry-seo-gate.ts — full gate on publish</p>
-                      <p>server/routes/versioning.ts — convert-to-draft / promote</p>
-                    </CollapsibleContent>
-                  </Collapsible>
-                </div>
-              )}
 
               {/* Search Snippet */}
               <div className="space-y-3">
@@ -563,17 +531,16 @@ export function SeoModal({
                   <h4 className="text-sm font-semibold">This is how your page looks when shared</h4>
                 </div>
 
-                {!snippetEditing || isLiveSnippetLocked ? (
+                {!snippetEditing ? (
                   /* ── Preview card ── */
                   <div className="space-y-3">
                     {/* Google SERP preview */}
                     <div
-                      className={`relative rounded-md border bg-background px-4 py-3 pr-10 space-y-0.5 ${isLiveSnippetLocked ? "" : "cursor-pointer hover-elevate"}`}
-                      onClick={() => !isLiveSnippetLocked && setSnippetEditing(true)}
+                      className="relative rounded-md border bg-background px-4 py-3 pr-10 space-y-0.5 cursor-pointer hover-elevate"
+                      onClick={() => setSnippetEditing(true)}
                       data-testid="card-serp-preview"
-                      title={isLiveSnippetLocked ? undefined : "Click to edit"}
+                      title="Click to edit"
                     >
-                      {!isLiveSnippetLocked && (
                       <div
                         className="absolute top-2 right-2 z-10"
                         onClick={(e) => e.stopPropagation()}
@@ -590,7 +557,6 @@ export function SeoModal({
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
                       </div>
-                      )}
                       <p className="text-[11px] text-[#0d652d] dark:text-[#81c995] truncate" data-testid="text-serp-breadcrumb">
                         {snippetBreadcrumb || "your-site.com"}
                       </p>
@@ -605,12 +571,9 @@ export function SeoModal({
                     {/* Social / OG card preview */}
                     <div
                       className="rounded-md border overflow-hidden cursor-pointer hover-elevate"
-                      onClick={() => {
-                        if (isLiveSnippetLocked) setImagePickerOpen(true);
-                        else setSnippetEditing(true);
-                      }}
+                      onClick={() => setSnippetEditing(true)}
                       data-testid="card-og-preview"
-                      title={isLiveSnippetLocked ? "Click to change social image" : "Click to edit social image"}
+                      title="Click to edit snippet"
                     >
                       <div className="bg-muted flex items-center justify-center overflow-hidden" style={{ aspectRatio: "1200/630", maxHeight: "140px" }}>
                         {seoMeta.og_image && !ogImageError ? (
@@ -652,6 +615,23 @@ export function SeoModal({
                 ) : (
                   /* ── Edit form ── */
                   <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-foreground">Edit share preview</p>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0"
+                        onClick={() => {
+                          onRevertSnippet?.();
+                          setSnippetEditing(false);
+                        }}
+                        data-testid="button-cancel-snippet-edit"
+                        title="Cancel"
+                        aria-label="Cancel snippet edit"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                     <div className="space-y-1.5">
                       <label className="text-xs font-medium text-foreground" htmlFor="seo-page-title">
                         Page Title
@@ -755,20 +735,40 @@ export function SeoModal({
                     <div className="flex flex-wrap gap-2">
                     <Button
                       size="sm"
-                      onClick={() => void onSaveSnippet()}
-                      disabled={!!saving.snippet}
+                      disabled={
+                        !snippetDirty || !!saving.snippet || snippetSaveBlocked
+                      }
+                      onClick={() => {
+                        void (async () => {
+                          try {
+                            await onSaveSnippet();
+                            setSnippetEditing(false);
+                          } catch {
+                            /* stay in edit mode */
+                          }
+                        })();
+                      }}
                       data-testid="button-save-snippet"
                     >
                       {saving.snippet ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
                       Save snippet
                     </Button>
+                    {snippetSaveBlocked ? (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 self-center">
+                        Title and description cannot be empty on a live locale.
+                      </p>
+                    ) : null}
                     <Button
                       size="sm"
-                      variant="outline"
-                      onClick={() => setSnippetEditing(false)}
-                      data-testid="button-snippet-done"
+                      variant="ghost"
+                      disabled={!!saving.snippet}
+                      onClick={() => {
+                        onRevertSnippet?.();
+                        setSnippetEditing(false);
+                      }}
+                      data-testid="button-snippet-cancel"
                     >
-                      Done editing
+                      Cancel
                     </Button>
                     </div>
                   </div>
@@ -963,13 +963,6 @@ export function SeoModal({
 
               {/* Crawl & sitemap settings */}
               <div className="space-y-3">
-                <div>
-                  <h4 className="text-sm font-semibold">Crawl &amp; sitemap settings</h4>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Robots directive, sitemap priority, and change frequency for this locale.
-                  </p>
-                </div>
-
                 {!visibilityEditing ? (
                   <div
                     className="relative rounded-md border bg-background px-4 py-3 pr-10 space-y-2 cursor-pointer hover-elevate"
@@ -1010,8 +1003,13 @@ export function SeoModal({
                   </div>
                 ) : (
                   <div className="rounded-md border bg-background px-4 py-3 space-y-4" data-testid="form-visibility-settings">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs font-medium text-foreground">Edit crawl &amp; sitemap settings</p>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h4 className="text-sm font-semibold">Crawl &amp; sitemap settings</h4>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Robots directive, sitemap priority, and change frequency for this locale.
+                        </p>
+                      </div>
                       <Button
                         size="icon"
                         variant="ghost"

@@ -42,6 +42,7 @@ import {
 import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
+import { formatSitePathsInText } from "@shared/formatSitePath";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MetricsAccessGate } from "@/components/MetricsAccessGate";
@@ -1670,9 +1671,13 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                         </Button>
                       )}
                     </div>
-                    <div className="text-foreground mt-0.5">{issue.message}</div>
+                    <div className="text-foreground mt-0.5">
+                      {formatSitePathsInText(issue.message, formatSitePath)}
+                    </div>
                     {issue.suggestion && (
-                      <div className="text-muted-foreground italic mt-0.5">{issue.suggestion}</div>
+                      <div className="text-muted-foreground italic mt-0.5">
+                        {formatSitePathsInText(issue.suggestion, formatSitePath)}
+                      </div>
                     )}
                     {issue.url && <div className="text-muted-foreground">{issue.url}</div>}
                     {issue.file && (

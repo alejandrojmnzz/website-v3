@@ -749,8 +749,10 @@ export function registerSeoRoutes(app: Express): void {
       }
 
       const contentRoot = getContentRoot(res);
-      const { loadSeoIndex } = await import("../seo-index");
+      const { loadSeoIndex, computeClusterHealth, listBrokenClusterRefs } = await import("../seo-index");
       const seoIndex = loadSeoIndex(contentRoot);
+      const clusterHealth = computeClusterHealth(seoIndex, getCI(res));
+      const brokenClusterRefs = listBrokenClusterRefs(seoIndex, getCI(res));
       const clusters = Object.entries(seoIndex.clusters).map(([hubId, cluster]) => {
         const hub = seoIndex.entries[hubId];
         const keyword =
@@ -782,17 +784,15 @@ export function registerSeoRoutes(app: Express): void {
           clusterCount: cluster.members.length,
         };
       });
-      const uniqueOrphans = seoIndex.orphans.map((id) => {
-        const row = seoIndex.entries[id];
-        const parts = id.split("/");
-        return {
-          slug: row?.slug || parts[1] || id,
-          contentType: row?.content_type || parts[0] || "",
-          intent: "unknown",
-          filePath: row?.file || "",
-          locale: row?.locale || parts[2],
-        };
-      });
+      const uniqueOrphans = brokenClusterRefs.map((row) => ({
+        slug: row.slug,
+        contentType: row.contentType,
+        intent: "unknown",
+        filePath: row.filePath,
+        locale: row.locale,
+        pillar_path: row.pillar_path,
+        reason: row.reason,
+      }));
       const withPillar = Object.values(seoIndex.entries).filter(
         (e) => e.is_pillar || (typeof e.pillar_path === "string" && e.pillar_path.trim()),
       ).length;
@@ -800,6 +800,8 @@ export function registerSeoRoutes(app: Express): void {
       res.json({
         intentDistribution,
         clusters,
+        clusterHealth,
+        brokenClusterRefs,
         orphanPages: uniqueOrphans,
         featureCoverage,
         faqCoverage,

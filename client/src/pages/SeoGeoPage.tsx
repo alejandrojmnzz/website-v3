@@ -74,9 +74,9 @@ function ClusterMapHelp() {
   return (
     <div className="mb-3 space-y-1.5" data-testid="cluster-map-help">
       <p className="text-xs text-muted-foreground leading-relaxed">
-        A cluster is a hub page and the pages that belong to it. Expand a name to see those
-        pages, add or remove members, and check Google index status. Use Add page to assign{" "}
-        <code className="font-mono text-[10px]">seo.pillar_path</code> on a locale YAML file.
+        Clusters group a hub page and its supporting pages. Stats below cover content types with{" "}
+        <strong className="font-medium text-foreground">SEO monitoring</strong> enabled in content-type
+        settings. Assign members via <code className="font-mono text-[10px]">seo.pillar_path</code> on locale YAML.
       </p>
       <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
         <CollapsibleTrigger asChild>
@@ -95,12 +95,20 @@ function ClusterMapHelp() {
         <CollapsibleContent className="pt-1 space-y-1 text-xs text-muted-foreground">
           <p>
             Hub = <code className="font-mono text-[10px]">seo.is_pillar</code> on the locale YAML.
-            Members set <code className="font-mono text-[10px]">seo.pillar_path</code> to that
-            hub URL (same locale prefix). Empty path = not in a cluster. Duplicate pillars warn
-            only; they are not auto-cleared.
+            Members set <code className="font-mono text-[10px]">seo.pillar_path</code> to that hub URL.
+            Missing or empty path = gap (counted in stats).{" "}
+            <code className="font-mono text-[10px]">pillar_path: null</code> = intentional opt-out.
+          </p>
+          <p>
+            Monitoring is configured per content type in{" "}
+            <code className="font-mono text-[10px]">content-types.yml</code> (
+            <code className="font-mono text-[10px]">seo_monitoring.enabled</code>; omitted = off). DB-backed
+            types can map <code className="font-mono text-[10px]">seo_main_keyword</code> /{" "}
+            <code className="font-mono text-[10px]">seo_pillar_path</code> in field_mapping; locale YAML wins.
           </p>
           <p className="font-mono">{"{contentRoot}/seo-index.json"}</p>
           <p className="font-mono">server/seo-index.ts</p>
+          <p className="font-mono">server/seo-monitoring.ts</p>
           <p className="font-mono">server/content-types.ts</p>
           <p className="font-mono">client/src/components/editing/MappingFieldsTab.tsx</p>
         </CollapsibleContent>
@@ -166,6 +174,164 @@ function invalidateClusterQueries(hubId?: string) {
   if (hubId) {
     void queryClient.invalidateQueries({ queryKey: ["/api/seo/cluster-diagnostics", hubId] });
   }
+}
+
+type ClusterBucketCounts = {
+  unclustered: number;
+  partiallySet: number;
+  brokenRefs: number;
+  optedOut: number;
+  clustered: number;
+  hub: number;
+};
+
+type ClusterHealth = {
+  emptyHubCount: number;
+  stats: ClusterBucketCounts;
+  byContentType: Record<string, ClusterBucketCounts>;
+  byLocale: Record<string, ClusterBucketCounts>;
+};
+
+type BrokenClusterRefRow = {
+  slug: string;
+  contentType: string;
+  locale: string;
+  path: string;
+  pillar_path: string;
+  filePath: string;
+  main_keyword: string | null;
+  reason: "hub_not_found" | "hub_not_pillar";
+};
+
+type SeoIndexWarningRow = {
+  code: string;
+  entry?: string;
+  pillar_path?: string;
+  message?: string;
+};
+
+function ClusterHealthPanel({ health }: { health: ClusterHealth }) {
+  const { stats } = health;
+  return (
+    <div className="mb-4 space-y-3" data-testid="cluster-health-stats">
+      <div className="flex flex-wrap gap-2">
+        <Badge variant="secondary" className="tabular-nums" data-testid="stat-unclustered">
+          Unclustered {stats.unclustered}
+        </Badge>
+        <Badge variant="secondary" className="tabular-nums" data-testid="stat-partially-set">
+          Partially set {stats.partiallySet}
+        </Badge>
+        <Badge
+          variant={stats.brokenRefs > 0 ? "destructive" : "secondary"}
+          className="tabular-nums"
+          data-testid="stat-broken-refs"
+        >
+          Broken refs {stats.brokenRefs}
+        </Badge>
+        <Badge variant="outline" className="tabular-nums" data-testid="stat-empty-hubs">
+          Empty hubs {health.emptyHubCount}
+        </Badge>
+        <Badge variant="outline" className="tabular-nums" data-testid="stat-clustered">
+          Clustered {stats.clustered}
+        </Badge>
+      </div>
+      {Object.keys(health.byContentType).length > 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="text-muted-foreground border-b">
+                <th className="text-left py-1 pr-2 font-medium">Type</th>
+                <th className="text-right py-1 px-1">Uncl.</th>
+                <th className="text-right py-1 px-1">Partial</th>
+                <th className="text-right py-1 px-1">Broken</th>
+                <th className="text-right py-1 pl-1">Clustered</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(health.byContentType)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([ct, row]) => (
+                  <tr key={ct} className="border-b border-border/50" data-testid={`cluster-health-type-${ct}`}>
+                    <td className="py-1 pr-2 capitalize">{ct}</td>
+                    <td className="text-right py-1 px-1 tabular-nums">{row.unclustered}</td>
+                    <td className="text-right py-1 px-1 tabular-nums">{row.partiallySet}</td>
+                    <td className="text-right py-1 px-1 tabular-nums">{row.brokenRefs}</td>
+                    <td className="text-right py-1 pl-1 tabular-nums">{row.clustered + row.hub}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function BrokenClusterRefsPanel({
+  refs,
+  clusters,
+}: {
+  refs: BrokenClusterRefRow[];
+  clusters: {
+    pillarUrl: string;
+    hubId?: string;
+    keyword?: string | null;
+    locale?: string;
+  }[];
+}) {
+  if (refs.length === 0) return null;
+  return (
+    <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 p-3" data-testid="broken-cluster-refs-list">
+      <p className="text-xs font-medium text-foreground mb-2">Broken cluster references</p>
+      <ul className="space-y-2">
+        {refs.map((row) => (
+          <li key={`${row.contentType}-${row.slug}-${row.locale}`} className="text-xs">
+            <span className="font-mono text-foreground">{row.slug}</span>
+            <span className="text-muted-foreground"> · {row.contentType} · {row.locale.toUpperCase()}</span>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              {row.reason === "hub_not_pillar"
+                ? "Target URL is live but not marked as a pillar hub."
+                : "Target hub URL was not found."}
+              {row.pillar_path ? (
+                <>
+                  {" "}
+                  <code className="font-mono">{row.pillar_path}</code>
+                </>
+              ) : null}
+            </p>
+            <OrphanAssignButton
+              orphan={{ slug: row.slug, contentType: row.contentType, locale: row.locale }}
+              clusters={clusters}
+            />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function IndexWarningsPanel({ warnings }: { warnings: SeoIndexWarningRow[] }) {
+  const [open, setOpen] = useState(false);
+  if (!warnings.length) return null;
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="mb-4">
+      <CollapsibleTrigger asChild>
+        <Button variant="outline" size="sm" className="h-7 text-xs w-full justify-between" data-testid="button-index-warnings">
+          Index warnings
+          <Badge variant="secondary">{warnings.length}</Badge>
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="pt-2 space-y-1.5" data-testid="index-warnings-list">
+        {warnings.map((w, i) => (
+          <p key={`${w.code}-${w.entry ?? i}`} className="text-[11px] text-muted-foreground">
+            <span className="font-mono text-foreground">{w.code}</span>
+            {w.entry ? ` · ${w.entry}` : ""}
+            {w.message ? ` — ${w.message}` : ""}
+          </p>
+        ))}
+      </CollapsibleContent>
+    </Collapsible>
+  );
 }
 
 async function putSeoPillarPath(opts: {
@@ -955,7 +1121,18 @@ interface SeoOverview {
     locale?: string;
     members?: ClusterMember[];
   }[];
-  orphanPages: { slug: string; contentType: string; intent: string; filePath: string; locale?: string }[];
+  clusterHealth?: ClusterHealth;
+  brokenClusterRefs?: BrokenClusterRefRow[];
+  indexWarnings?: SeoIndexWarningRow[];
+  orphanPages: {
+    slug: string;
+    contentType: string;
+    intent: string;
+    filePath: string;
+    locale?: string;
+    pillar_path?: string;
+    reason?: BrokenClusterRefRow["reason"];
+  }[];
   featureCoverage: Record<string, number>;
   faqCoverage: { slug: string; contentType: string; locale: string; faqCount: number }[];
   schemaCoverage: Record<string, number>;
@@ -1580,6 +1757,11 @@ export function SeoTab({ data }: { data: SeoOverview }) {
         </CardHeader>
         <CardContent>
           <ClusterMapHelp />
+          {data.clusterHealth ? <ClusterHealthPanel health={data.clusterHealth} /> : null}
+          {data.brokenClusterRefs && data.brokenClusterRefs.length > 0 ? (
+            <BrokenClusterRefsPanel refs={data.brokenClusterRefs} clusters={data.clusters} />
+          ) : null}
+          <IndexWarningsPanel warnings={data.indexWarnings ?? []} />
           {data.clusters.length === 0 ? (
             <div className="text-center py-8" data-testid="clusters-empty">
               <Network className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
@@ -1592,13 +1774,15 @@ export function SeoTab({ data }: { data: SeoOverview }) {
           ) : (
             <Accordion type="multiple">
               {[...data.clusters]
-                .sort((a, b) =>
-                  clusterListLabel(a.keyword, a.pillarUrl).localeCompare(
+                .sort((a, b) => {
+                  if (a.clusterCount === 0 && b.clusterCount !== 0) return -1;
+                  if (b.clusterCount === 0 && a.clusterCount !== 0) return 1;
+                  return clusterListLabel(a.keyword, a.pillarUrl).localeCompare(
                     clusterListLabel(b.keyword, b.pillarUrl),
                     undefined,
                     { sensitivity: "base" },
-                  ),
-                )
+                  );
+                })
                 .map((cluster) => {
                   const hubId = cluster.hubId || cluster.pillarUrl;
                   const hubLocale = cluster.locale || "en";
@@ -1684,8 +1868,7 @@ export function SeoTab({ data }: { data: SeoOverview }) {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-12 gap-6">
-        <Card className="col-span-12 md:col-span-5">
+      <Card className="col-span-12">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
               <Star className="h-4 w-4" />
@@ -1708,47 +1891,6 @@ export function SeoTab({ data }: { data: SeoOverview }) {
             </div>
           </CardContent>
         </Card>
-
-        <Card className="col-span-12 md:col-span-7">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4" />
-              Orphan Pages
-              {data.orphanPages.length > 0 && (
-                <Badge variant="destructive">{data.orphanPages.length}</Badge>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {data.orphanPages.length === 0 ? (
-              <div className="text-center py-6" data-testid="orphans-empty">
-                <Check className="h-6 w-6 mx-auto text-chart-3 mb-2" />
-                <p className="text-sm text-muted-foreground">All pages are clustered</p>
-              </div>
-            ) : (
-              <ScrollArea className="max-h-64">
-                <div className="space-y-1.5" data-testid="orphan-pages-list">
-                  {data.orphanPages.map((p, i) => (
-                    <div key={`${p.slug}-${i}`} className="py-1.5 border-b border-border last:border-0" data-testid={`orphan-${p.slug}`}>
-                      <span className="text-xs font-mono text-foreground block truncate">{p.slug}</span>
-                      <div className="flex items-center gap-1 mt-1 flex-wrap">
-                        <Badge variant="outline" className="text-xs capitalize">{p.contentType}</Badge>
-                        {p.locale ? (
-                          <Badge variant="outline" className="text-xs uppercase">{p.locale}</Badge>
-                        ) : null}
-                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs ${INTENT_COLORS[p.intent] || INTENT_COLORS.unknown}`}>
-                          {INTENT_LABELS[p.intent] || p.intent}
-                        </span>
-                      </div>
-                      <OrphanAssignButton orphan={p} clusters={data.clusters} />
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
-            )}
-          </CardContent>
-        </Card>
-      </div>
     </div>
   );
 }

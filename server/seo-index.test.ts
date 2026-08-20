@@ -30,6 +30,9 @@ beforeEach(() => {
   directory: blog
   url_pattern:
     en: /en/blog/:slug
+  seo_monitoring:
+    enabled: true
+    require_cluster: true
 `,
     "utf-8",
   );

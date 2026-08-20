@@ -12,6 +12,11 @@ export const EDITABLE_META_KEYS = [
 
 export type EditableMetaKey = (typeof EDITABLE_META_KEYS)[number];
 
+/** Snippet keys that cannot be cleared on live micro-save (patch only). */
+export const LIVE_SNIPPET_KEYS = ["page_title", "description"] as const;
+
+export type LiveSnippetKey = (typeof LIVE_SNIPPET_KEYS)[number];
+
 export type MetaSaveOperation = {
   action: "update_field";
   path: string;
@@ -95,6 +100,9 @@ function buildLiveMetaPayload(
     const formVal = seoMeta[key];
     if (formVal) {
       payload[key] = formVal;
+    } else if ((LIVE_SNIPPET_KEYS as readonly string[]).includes(key)) {
+      // Live micro-save: never delete required snippet meta (staff must use draft for clears).
+      continue;
     } else {
       payload[key] = null;
     }
@@ -107,6 +115,19 @@ function buildLiveMetaPayload(
     }
   }
   return payload;
+}
+
+/** True when live snippet save would no-op because a dirty snippet field was cleared. */
+export function liveSnippetClearBlocked(
+  seoMeta: SeoMeta,
+  dirtyKeys: ReadonlySet<string>,
+): boolean {
+  for (const key of LIVE_SNIPPET_KEYS) {
+    if (!dirtyKeys.has(key)) continue;
+    const val = seoMeta[key];
+    if (typeof val !== "string" || !val.trim()) return true;
+  }
+  return false;
 }
 
 function buildVariantMetaPayload(input: BuildMetaSaveOperationsInput): Record<string, unknown> {

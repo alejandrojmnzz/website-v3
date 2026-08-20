@@ -63,6 +63,7 @@ import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTy
 import { WebhookUrlPopover } from "@/components/WebhookUrlPopover";
 import { getMetaIssues } from "@/lib/metaIssues";
 import { isUsableOgImageUrl } from "@shared/ogImageUrl";
+import { isLocaleIndexField, stripLocaleIndexFields } from "@shared/locale";
 
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
 
@@ -142,6 +143,7 @@ interface ContentTypeConfig {
   static_entry_count?: number;
   preview?: ContentTypePreviewConfig | null;
   schema_org_requirements?: Array<{ schema_type: string }>;
+  seo_monitoring?: { enabled?: boolean; require_cluster?: boolean } | null;
 }
 
 interface SchemaOrgCoverageRow {
@@ -1087,7 +1089,7 @@ function DataSourceDialog({
           setHreflangsIsTransformer(false);
         }
       }
-      setIndexedFields(config.indexes || []);
+      setIndexedFields(stripLocaleIndexFields(config.indexes || []) || []);
 
       if (config.database?.slug && sampleItems.length === 0) {
         loadSampleFromDb(config.database.slug);
@@ -1228,7 +1230,7 @@ function DataSourceDialog({
 
       const payload = {
         field_mapping: Object.keys(fullMapping).length > 0 ? fullMapping : undefined,
-        indexes: indexedFields.length > 0 ? indexedFields : undefined,
+        indexes: stripLocaleIndexFields(indexedFields),
         database: {
           slug: selectedDb,
         },
@@ -2012,7 +2014,7 @@ function DataSourceDialog({
                     </Badge>
                   )}
                   {Object.keys(fieldMapping).filter(k => {
-                    if (k.startsWith("_") || k === localeField) return false;
+                    if (k.startsWith("_") || k === localeField || isLocaleIndexField(k)) return false;
                     // also hide any field whose source maps to the same DB column as the locale
                     if (!localeIsTransformer && localeField && fieldMapping[k] === localeField) return false;
                     return true;
@@ -2036,7 +2038,7 @@ function DataSourceDialog({
                     );
                   })}
                   {Object.keys(fieldMapping).filter(k => {
-                    if (k.startsWith("_") || k === localeField) return false;
+                    if (k.startsWith("_") || k === localeField || isLocaleIndexField(k)) return false;
                     if (!localeIsTransformer && localeField && fieldMapping[k] === localeField) return false;
                     return true;
                   }).length === 0 && !localeField && (
@@ -3117,7 +3119,7 @@ function FieldMappingDialog({
     }
     setCustomModes(cmodes);
     setRemapModes(rmodes);
-    setIndexedFields(config.indexes || []);
+    setIndexedFields(stripLocaleIndexFields(config.indexes || []) || []);
     setEditorHints(config.editor || {});
     setUniqueFields(config.unique_fields ?? ["slug"]);
     setValidation({});
@@ -3332,8 +3334,10 @@ function FieldMappingDialog({
         }
       }
 
-      const safeIndexes = indexedFields.filter(
-        (f) => f !== FORBIDDEN_SCHEMA_FIELD && f !== RESERVED_IMAGE_FIELD && !f.startsWith("_"),
+      const safeIndexes = stripLocaleIndexFields(
+        indexedFields.filter(
+          (f) => f !== FORBIDDEN_SCHEMA_FIELD && f !== RESERVED_IMAGE_FIELD && !f.startsWith("_"),
+        ),
       );
       const safeUnique = uniqueFields.filter(
         (f) => f !== FORBIDDEN_SCHEMA_FIELD && f !== RESERVED_IMAGE_FIELD && !f.startsWith("_"),
@@ -3984,7 +3988,8 @@ function FieldMappingDialog({
                       own query. <span className="font-medium text-foreground">Is pillar</span> marks this page
                       as the hub — save fills <span className="font-medium text-foreground">Pillar path</span>{" "}
                       with this page&apos;s URL. Supporting pages set Pillar path to that hub URL (same locale
-                      prefix). Empty path means the page is not in a cluster.
+                      prefix). Missing or empty = cluster gap; <code className="font-mono text-xs">pillar_path: null</code> =
+                      intentional opt-out.
                     </p>
                     <p>
                       These three fields live on the locale YAML <code className="font-mono text-xs">seo:</code>{" "}
@@ -4332,10 +4337,16 @@ function FieldMappingDialog({
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground">Indexes</Label>
               <p className="text-[11px] text-muted-foreground">
-                Indexed fields generate filter dropdowns and summary cards on the management page.
+                Indexed fields generate filter dropdowns and summary cards on the management page. Language is always indexed automatically via <code className="font-mono">_locale</code>.
               </p>
               <div className="flex items-center gap-2 flex-wrap" data-testid="section-index-toggles">
-                {regularKeys.map((field) => {
+                {mappings._locale && typeof mappings._locale === "string" && !mappings._locale.startsWith("function:") && (
+                  <Badge variant="default" className="text-xs cursor-default opacity-70 no-default-active-elevate" data-testid="badge-index-locale-auto">
+                    <Check className="h-3 w-3 mr-1" />
+                    {mappings._locale} (Language, auto)
+                  </Badge>
+                )}
+                {regularKeys.filter((field) => !isLocaleIndexField(field)).map((field) => {
                   const isIndexed = indexedFields.includes(field);
                   return (
                     <Badge
@@ -5265,7 +5276,7 @@ export default function ContentTypeManagePage() {
     dbEditorConfig?.[fieldKey]?.type === "tags";
 
   const allIndexFields = (() => {
-    const explicit = typeConfig?.indexes || [];
+    const explicit = stripLocaleIndexFields(typeConfig?.indexes || []) || [];
     const result = [...explicit];
     if (localeKey && !result.includes(localeKey)) {
       result.push(localeKey);
@@ -5397,6 +5408,9 @@ export default function ContentTypeManagePage() {
   const hasDb = !!typeConfig?.database?.slug;
   const singleTemplateEnabled = !!typeConfig?.single_template;
   const [singleTemplateSaving, setSingleTemplateSaving] = useState(false);
+  const [seoMonitoringSaving, setSeoMonitoringSaving] = useState(false);
+  const seoMonitoringEnabled = typeConfig?.seo_monitoring?.enabled === true;
+  const requireClusterEnabled = typeConfig?.seo_monitoring?.require_cluster === true;
   const [explainSharedLayoutOpen, setExplainSharedLayoutOpen] = useState(false);
   const [explainLinkedDatabaseOpen, setExplainLinkedDatabaseOpen] = useState(false);
   const [enableSharedLayoutOpen, setEnableSharedLayoutOpen] = useState(false);
@@ -5449,6 +5463,35 @@ export default function ContentTypeManagePage() {
     } finally {
       setSingleTemplateSaving(false);
       setEnableSharedLayoutOpen(false);
+    }
+  };
+
+  const saveSeoMonitoring = async (patch: { enabled: boolean; require_cluster?: boolean }) => {
+    setSeoMonitoringSaving(true);
+    try {
+      const require_cluster =
+        patch.require_cluster ?? (patch.enabled ? requireClusterEnabled : false);
+      await apiRequest("PUT", `/api/content-types/${contentType}/config`, {
+        seo_monitoring: patch.enabled
+          ? { enabled: true, require_cluster: require_cluster }
+          : { enabled: false, require_cluster: false },
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/seo/overview"] });
+      toast({
+        title: patch.enabled ? "SEO monitoring on" : "SEO monitoring off",
+        description: patch.enabled
+          ? "This type is included in seo-index.json and Cluster Map stats."
+          : "Entries are excluded from cluster monitoring until re-enabled.",
+      });
+    } catch (err) {
+      toast({
+        title: "Failed to update SEO monitoring",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setSeoMonitoringSaving(false);
     }
   };
 
@@ -6143,6 +6186,37 @@ export default function ContentTypeManagePage() {
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+          <Card data-testid="card-kpi-seo-monitoring">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                SEO monitoring
+              </CardTitle>
+              <Switch
+                checked={seoMonitoringEnabled}
+                disabled={seoMonitoringSaving || typeConfig === undefined}
+                onCheckedChange={(checked) => void saveSeoMonitoring({ enabled: checked })}
+                data-testid="switch-seo-monitoring"
+              />
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Include entries in seo-index.json and the SEO tab Cluster Map. Omitted in config = off.
+              </p>
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <span className="text-xs text-muted-foreground">Require cluster</span>
+                <Switch
+                  checked={requireClusterEnabled}
+                  disabled={
+                    seoMonitoringSaving || !seoMonitoringEnabled || typeConfig === undefined
+                  }
+                  onCheckedChange={(checked) =>
+                    void saveSeoMonitoring({ enabled: true, require_cluster: checked })
+                  }
+                  data-testid="switch-require-cluster"
+                />
+              </div>
+            </CardContent>
+          </Card>
           <Card data-testid="card-kpi-single-template">
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">

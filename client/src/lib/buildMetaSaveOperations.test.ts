@@ -44,14 +44,26 @@ describe("buildMetaSaveOperations", () => {
     expect(ops).toEqual([]);
   });
 
-  it("LIVE: user cleared description (dirty + empty) deletes meta.description", () => {
+  it("LIVE: cleared snippet field emits no delete op (cannot clear on live micro-save)", () => {
     const seoMeta: SeoMeta = { ...baseline, description: "" };
     const ops = buildMetaSaveOperations({
       context: "live",
       seoMeta,
       dirtyKeys: dirty("description"),
     });
-    expect(ops).toEqual([{ action: "update_field", path: "meta.description", value: null }]);
+    expect(ops).toEqual([]);
+  });
+
+  it("LIVE: dirty page_title with valid value patches meta.page_title only", () => {
+    const seoMeta: SeoMeta = { ...baseline, page_title: "Updated SERP title" };
+    const ops = buildMetaSaveOperations({
+      context: "live",
+      seoMeta,
+      dirtyKeys: dirty("page_title"),
+    });
+    expect(ops).toEqual([
+      { action: "update_field", path: "meta.page_title", value: "Updated SERP title" },
+    ]);
   });
 
   it("LIVE: dirty optional field cleared sends null delete", () => {

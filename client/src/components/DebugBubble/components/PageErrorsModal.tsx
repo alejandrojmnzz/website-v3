@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { PageDiagnostics } from "../types";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
+import { formatSitePathsInText } from "@shared/formatSitePath";
 import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { cn } from "@/lib/utils";
@@ -124,7 +125,9 @@ function IssueCard({
               >
                 {issue.code}
               </div>
-              <div className="mt-1 text-foreground">{issue.message}</div>
+              <div className="mt-1 text-foreground">
+                {formatSitePathsInText(issue.message, formatSitePath)}
+              </div>
             </div>
             {hasDetails && (
               <IconChevronDown
@@ -151,7 +154,9 @@ function IssueCard({
                 </div>
               )}
               {issue.suggestion && (
-                <div className="text-xs text-muted-foreground">{issue.suggestion}</div>
+                <div className="text-xs text-muted-foreground">
+                  {formatSitePathsInText(issue.suggestion, formatSitePath)}
+                </div>
               )}
               {issue.file && (
                 <div className="text-xs text-muted-foreground font-mono" title={issue.file}>

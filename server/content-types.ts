@@ -3,6 +3,7 @@ import { getDefaultContentRoot } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { normalizeFlexibleDate } from "@shared/normalizeFlexibleDate";
+import { isLocaleIndexField, LOCALE_INDEX_FIELD_NAMES } from "@shared/locale";
 import { getSupportedLocales, getDefaultLocale } from "./settings";
 import { markFileAsModified } from "./sync-state";
 import {
@@ -16,6 +17,12 @@ const log = child({ module: "content-types" });
 
 export interface DatabaseConfig {
   slug: string;
+}
+
+/** SEO cluster monitoring — omitted means disabled (opt-in). */
+export interface SeoMonitoringConfig {
+  enabled?: boolean;
+  require_cluster?: boolean;
 }
 
 export interface LayoutMenuConfig {
@@ -106,6 +113,11 @@ export interface ContentTypeEntry {
    * Entry slugs that cannot be deleted (system defaults, e.g. org author).
    */
   protected_slugs?: string[];
+  /**
+   * When enabled, entries of this type participate in seo-index.json and Cluster Map stats.
+   * Omitted = disabled. require_cluster warns when a monitored entry has no cluster assignment.
+   */
+  seo_monitoring?: SeoMonitoringConfig;
 }
 
 interface ContentTypesRegistry {
@@ -220,6 +232,13 @@ const CONFIG_HEADER = `# Content Types Configuration
 #     namespaces). Optional: value (default slug), label (default title/name), multiple.
 #     Stores slug string or string[] (multiple). Empty [] fails when required. Page/SSR
 #     hydrate to related objects via resolve-relations; listings keep pointers.
+#
+# seo_monitoring (optional):
+#   When enabled: true, entries join seo-index.json and Cluster Map stats (omitted = off).
+#   require_cluster: true warns when a monitored entry lacks a cluster (seo.pillar_path unset/empty).
+#   Per-entry opt-out: set seo.pillar_path: null on locale YAML (intentional standalone).
+#   DB-backed types: optional field_mapping keys seo_main_keyword, seo_pillar_path, seo_is_pillar
+#   map DB columns; locale YAML seo: overlay wins per key.
 #
 # schema_org_requirements (optional):
 #   List of companion schema_org sections required on every entry, e.g.
@@ -527,7 +546,13 @@ export function normalizeContentTypeFieldConfig(
   }
 
   const stripProtected = (arr: string[] | undefined) =>
-    arr?.filter((f) => f !== IMAGE_ALIAS_FIELD && f !== RESERVED_IMAGE_FIELD && !isSystemSpecialField(f));
+    arr?.filter(
+      (f) =>
+        f !== IMAGE_ALIAS_FIELD &&
+        f !== RESERVED_IMAGE_FIELD &&
+        !isSystemSpecialField(f) &&
+        !isLocaleIndexField(f),
+    );
 
   return {
     field_mapping: next,
@@ -716,8 +741,7 @@ export function getLocaleKey(type: string, contentRoot?: string): string | null 
   if (raw.startsWith("function:")) {
     const mapping = entry?.field_mapping;
     if (mapping) {
-      const localeLikeFields = ["lang", "locale", "language"];
-      for (const f of localeLikeFields) {
+      for (const f of LOCALE_INDEX_FIELD_NAMES) {
         if (f in mapping && !f.startsWith("_")) return f;
       }
     }
@@ -1021,13 +1045,15 @@ export function hasFieldMapping(type: string, contentRoot?: string): boolean {
   return !!getFieldMapping(type, contentRoot);
 }
 
-export type ContentTypeConfigUpdate = Partial<Omit<ContentTypeEntry, "database" | "preview" | "editor">> & {
+export type ContentTypeConfigUpdate = Partial<Omit<ContentTypeEntry, "database" | "preview" | "editor" | "seo_monitoring">> & {
   /** Pass `null` to unlink a database-backed type (removes the `database` key). */
   database?: DatabaseConfig | null;
   /** Pass `null` to remove preview screenshot config. */
   preview?: ContentTypePreviewConfig | null;
   /** Pass `null` to remove all content-type editor hints. */
   editor?: ContentTypeEntry["editor"] | null;
+  /** Pass `null` to remove seo_monitoring (same as omitted = disabled). */
+  seo_monitoring?: SeoMonitoringConfig | null;
 };
 
 export function updateContentTypeConfig(type: string, update: ContentTypeConfigUpdate, contentRoot?: string): void {
@@ -1038,7 +1064,7 @@ export function updateContentTypeConfig(type: string, update: ContentTypeConfigU
     throw new Error(`Content type "${type}" not found`);
   }
 
-  const { database: databaseUpdate, preview: previewUpdate, editor: editorUpdate, ...rest } = update;
+  const { database: databaseUpdate, preview: previewUpdate, editor: editorUpdate, seo_monitoring: seoMonitoringUpdate, ...rest } = update;
   const merged: ContentTypeEntry = { ...existing, ...rest };
   if (databaseUpdate === null) {
     delete merged.database;
@@ -1058,6 +1084,12 @@ export function updateContentTypeConfig(type: string, update: ContentTypeConfigU
     delete merged.editor;
   } else if (editorUpdate) {
     merged.editor = editorUpdate;
+  }
+
+  if (seoMonitoringUpdate === null) {
+    delete merged.seo_monitoring;
+  } else if (seoMonitoringUpdate) {
+    merged.seo_monitoring = seoMonitoringUpdate;
   }
 
   // Database-backed types always use a shared template.

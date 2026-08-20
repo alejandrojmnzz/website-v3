@@ -6,7 +6,7 @@ import { getDebugToken } from "@/hooks/useDebugAuth";
 import { useSeoModalSaves } from "@/hooks/useSeoModalSaves";
 import { useContentTypes } from "@/hooks/useContentTypes";
 import { normalizeLocale, buildContentUrlFromPattern } from "@/lib/locale";
-import { computeDirtyMetaKeys } from "@/lib/buildMetaSaveOperations";
+import { computeDirtyMetaKeys, liveSnippetClearBlocked } from "@/lib/buildMetaSaveOperations";
 
 export interface ManagedSeoModalTarget {
   contentType: string;
@@ -251,7 +251,6 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
       setSeoLocationSearch={setSeoLocationSearch}
       baselineLocations={locationsBaseline}
       saving={saves.saving}
-      isLiveSnippetLocked={saves.isLiveSnippetLocked}
       onSaveLocations={async (locs) => {
         await saves.saveLocations(locs);
         setLocationsBaseline([...locs]);
@@ -266,10 +265,21 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
         });
       }}
       onSaveSnippet={saves.saveSnippet}
+      onRevertSnippet={() => {
+        applySeoMetaFromForm({
+          ...seoMeta,
+          page_title: baselineMetaRef.current.page_title,
+          description: baselineMetaRef.current.description,
+        });
+      }}
       onSaveCanonical={saves.saveCanonical}
       onSaveOgImage={saves.saveOgImage}
-      onConvertToDraft={saves.convertToDraft}
       visibilityDirty={["robots", "priority", "change_frequency"].some((k) => dirtyKeys.has(k))}
+      snippetDirty={["page_title", "description"].some((k) => dirtyKeys.has(k))}
+      snippetSaveBlocked={
+        saves.isLiveLocale &&
+        liveSnippetClearBlocked(seoMeta, dirtyKeys)
+      }
       canonicalDirty={dirtyKeys.has("canonical_url")}
       newSlugValue={newSlugValue}
       setNewSlugValue={setNewSlugValue}

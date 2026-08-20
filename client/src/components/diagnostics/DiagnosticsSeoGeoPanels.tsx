@@ -21,7 +21,28 @@ interface SeoOverview {
       updated_at?: string | null;
     }[];
   }[];
-  orphanPages: { slug: string; contentType: string; intent: string; filePath: string }[];
+  orphanPages: {
+    slug: string;
+    contentType: string;
+    intent: string;
+    filePath: string;
+    locale?: string;
+    pillar_path?: string;
+    reason?: "hub_not_found" | "hub_not_pillar";
+  }[];
+  clusterHealth?: {
+    emptyHubCount: number;
+    stats: Record<string, number>;
+    byContentType: Record<string, Record<string, number>>;
+    byLocale: Record<string, Record<string, number>>;
+  };
+  brokenClusterRefs?: Array<{
+    slug: string;
+    contentType: string;
+    locale: string;
+    reason: "hub_not_found" | "hub_not_pillar";
+  }>;
+  indexWarnings?: Array<{ code: string; entry?: string; message?: string }>;
   featureCoverage: Record<string, number>;
   faqCoverage: { slug: string; contentType: string; locale: string; faqCount: number }[];
   schemaCoverage: Record<string, number>;

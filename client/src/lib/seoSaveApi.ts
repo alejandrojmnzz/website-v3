@@ -2,6 +2,7 @@ import type { SeoMeta } from "@/components/DebugBubble/types";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
 import {
   buildMetaSaveOperations,
+  liveSnippetClearBlocked,
   type MetaSaveOperation,
 } from "@/lib/buildMetaSaveOperations";
 
@@ -170,6 +171,11 @@ export async function saveSnippetMeta(
     variant?: string;
   },
 ): Promise<void> {
+  if (ctx.context === "live" && liveSnippetClearBlocked(ctx.seoMeta, ctx.dirtyKeys)) {
+    throw new Error(
+      "Title and description cannot be cleared on a live locale. Enter a value or cancel.",
+    );
+  }
   const operations = buildSnippetOperations(ctx);
   if (operations.length === 0) return;
   await postMetaPatch({
@@ -179,20 +185,4 @@ export async function saveSnippetMeta(
     variant: ctx.variant,
     operations,
   });
-}
-
-export async function convertLocaleToDraft(opts: {
-  contentType: string;
-  slug: string;
-  locale: string;
-}): Promise<void> {
-  const headers = await authHeaders();
-  const res = await fetch(
-    `/api/versioning/${encodeURIComponent(opts.contentType)}/${encodeURIComponent(opts.slug)}/${encodeURIComponent(opts.locale)}/convert-to-draft`,
-    { method: "POST", headers },
-  );
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error((data as { error?: string }).error || "Failed to convert to draft");
-  }
 }

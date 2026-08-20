@@ -72,10 +72,10 @@ function buildSeoContextBlock(): string {
 
   lines.push("\n### Topic clusters");
   lines.push(
-    "Pages declare `seo.pillar` — the URL of the main authority page on this topic. " +
-    "All pages sharing the same pillar form a cluster. The pillar page is the highest-priority " +
-    "page for the topic; cluster pages elaborate and link back to it. " +
-    "A page with no pillar is an orphan — it belongs to no cluster."
+    "Participation is gated by `seo_monitoring.enabled` on each content type in content-types.yml (omitted = off). " +
+    "Hub pages use `seo.is_pillar: true`; members set `seo.pillar_path` to the hub URL (legacy `seo.pillar` still honored). " +
+    "`seo.pillar_path: null` opts a page out of clustering. Empty/missing pillar_path on a monitored type is a gap " +
+    "(ORPHAN_PAGE / PARTIALLY_SET_CLUSTER in validation)."
   );
 
   lines.push("\n### Valid focus features");

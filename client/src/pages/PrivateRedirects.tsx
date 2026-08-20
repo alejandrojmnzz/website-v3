@@ -38,6 +38,7 @@ import {
   useRedirectConflictResolver,
 } from "@/components/RedirectConflictResolver";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
+import { formatSitePathsInText } from "@shared/formatSitePath";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DndContext,
@@ -201,27 +202,6 @@ interface ValidationResult {
   errors: ValidationIssue[];
   warnings: ValidationIssue[];
   duration: number;
-}
-
-function isContentFilePath(p: string): boolean {
-  return (
-    /\.ya?ml$/i.test(p) ||
-    /(?:^|\/)(?:site_[^/]+|4geeks-com|content)\//.test(p)
-  );
-}
-
-/** Format a path or a message that embeds content file paths (site-relative). */
-function formatValidationText(
-  text: string,
-  formatPath: (filePath: string) => string,
-): string {
-  if (!text) return text;
-  if (!text.includes('"') && isContentFilePath(text)) {
-    return formatPath(text);
-  }
-  return text.replace(/"([^"]+)"/g, (full, inner: string) =>
-    isContentFilePath(inner) ? `"${formatPath(inner)}"` : full,
-  );
 }
 
 const FILE_ORDINALS = ["first", "second", "third", "fourth", "fifth"];
@@ -1055,11 +1035,11 @@ export default function PrivateRedirects() {
                               )}
                             </div>
                             <p className="text-sm mt-1">
-                              {formatValidationText(issue.message, formatPath)}
+                              {formatSitePathsInText(issue.message, formatPath)}
                             </p>
                             {issue.suggestion && (
                               <p className="text-xs text-muted-foreground mt-1">
-                                {formatValidationText(issue.suggestion || "", formatPath)}
+                                {formatSitePathsInText(issue.suggestion || "", formatPath)}
                               </p>
                             )}
                             {conflict && conflict.files.length >= 2 && (
@@ -1138,11 +1118,11 @@ export default function PrivateRedirects() {
                               )}
                             </div>
                             <p className="text-sm mt-1">
-                              {formatValidationText(issue.message, formatPath)}
+                              {formatSitePathsInText(issue.message, formatPath)}
                             </p>
                             {issue.suggestion && (
                               <p className="text-xs text-muted-foreground mt-1">
-                                {formatValidationText(issue.suggestion || "", formatPath)}
+                                {formatSitePathsInText(issue.suggestion || "", formatPath)}
                               </p>
                             )}
                             {conflict && conflict.files.length >= 2 && (

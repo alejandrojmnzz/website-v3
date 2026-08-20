@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Image, ImageOff, Loader2, Pencil, RefreshCw, Wand2, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { AlertCircle, Image, ImageOff, Loader2, Pencil, RefreshCw, Wand2, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,6 +46,11 @@ import {
 } from "@shared/entry-preview-props";
 import type { Section } from "@shared/schema";
 import { cn } from "@/lib/utils";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 const LIVE_PREVIEW_WIDTH = 1200;
 const LIVE_PREVIEW_HEIGHT = 630;
@@ -1092,29 +1097,59 @@ export function EntryPreviewCard({
                 />
               </Button>
             )}
-            <Image className="h-4 w-4 text-muted-foreground" />
+            {configError ? (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex shrink-0"
+                    data-testid="badge-entry-preview-config-error"
+                  >
+                    <Badge variant="destructive" className="gap-1 text-[10px] cursor-pointer">
+                      <AlertCircle className="h-3 w-3" />
+                      Action Required
+                    </Badge>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="w-72 text-xs"
+                  side="bottom"
+                  align="end"
+                  data-testid="popover-entry-preview-config-error"
+                >
+                  <p className="text-destructive leading-relaxed" data-testid="text-entry-preview-config-error">
+                    {configError}
+                  </p>
+                </PopoverContent>
+              </Popover>
+            ) : (
+              <Image className="h-4 w-4 text-muted-foreground" />
+            )}
           </div>
         </CardHeader>
         <CardContent className="space-y-2">
           <p className="text-xs text-muted-foreground leading-relaxed">
             {hasPreview
-              ? `${preview.component}${preview.variant ? ` / ${preview.variant}` : ""} — server captures via Cloudflare Browser Run for admin thumbs and og:image. On success, locale YAML meta.og_image is set (unless a gallery/editorial image is already set). You can close this tab after Generate.`
+              ? "Use Cloudflare to generate the images that show when your pages are published on social media."
               : "Configure a component to generate OG / list thumbnails when image is empty."}
           </p>
-          {configError ? (
-            <p className="text-xs text-destructive leading-relaxed" data-testid="text-entry-preview-config-error">
-              {configError}
-            </p>
-          ) : null}
           {hasPreview ? (
             <details className="text-xs text-muted-foreground">
               <summary className="cursor-pointer text-primary hover:underline">Read more (advanced)</summary>
-              <p className="mt-1 leading-relaxed">
-                Queue: server/entry-preview-capture-queue.ts · CF client: server/cloudflare-browser.ts ·
-                Storage: server/entry-preview-manager.ts · Frame: client/src/pages/EntryPreviewFrame.tsx.
-                Component gallery thumbs still use client modern-screenshot. Auto-commit batches YAML when
-                GitHub sync flags are on; WebPs under images/entry-previews/ are not in content git.
-              </p>
+              <div className="mt-1 space-y-2 leading-relaxed">
+                <p>
+                  {preview.component}
+                  {preview.variant ? ` / ${preview.variant}` : ""} — server captures via Cloudflare Browser
+                  Run for admin thumbs and og:image. On success, locale YAML meta.og_image is set (unless a
+                  gallery/editorial image is already set). You can close this tab after Generate.
+                </p>
+                <p>
+                  Queue: server/entry-preview-capture-queue.ts · CF client: server/cloudflare-browser.ts ·
+                  Storage: server/entry-preview-manager.ts · Frame: client/src/pages/EntryPreviewFrame.tsx.
+                  Component gallery thumbs still use client modern-screenshot. Auto-commit batches YAML when
+                  GitHub sync flags are on; WebPs under images/entry-previews/ are not in content git.
+                </p>
+              </div>
             </details>
           ) : null}
 
