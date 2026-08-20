@@ -304,4 +304,28 @@ describe("normalizeContentTypeFieldConfig locale indexes", () => {
     );
     expect(normalized.indexes).toEqual(["status", "category"]);
   });
+
+  it("allows seo_* DB baseline mapping keys", () => {
+    const normalized = normalizeContentTypeFieldConfig(
+      {
+        _slug: "slug",
+        seo_main_keyword: "cluster_keyword",
+        seo_pillar_path: "cluster_url",
+        seo_is_pillar: "is_hub",
+      },
+      { isDbBacked: true },
+    );
+    expect(normalized.field_mapping.seo_main_keyword).toBe("cluster_keyword");
+    expect(normalized.field_mapping.seo_pillar_path).toBe("cluster_url");
+    expect(normalized.field_mapping.seo_is_pillar).toBe("is_hub");
+  });
+
+  it("rejects dotted seo.* field_mapping keys", () => {
+    expect(() =>
+      normalizeContentTypeFieldConfig(
+        { _slug: "slug", "seo.main_keyword": "cluster_keyword" },
+        { isDbBacked: true },
+      ),
+    ).toThrow(/Invalid field_mapping key/);
+  });
 });

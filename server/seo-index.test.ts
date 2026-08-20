@@ -3,7 +3,7 @@ import os from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetRegistry } from "./content-types";
-import { invalidateSeoIndexCache, loadSeoIndex, writeSeoFields } from "./seo-index";
+import { invalidateSeoIndexCache, loadSeoIndex, resetSeoOverlayField, writeSeoFields } from "./seo-index";
 import type { ContentIndex } from "./content-index";
 
 const ORIGINAL_CWD = process.cwd();
@@ -102,5 +102,44 @@ meta:
     if (result.success) expect(result.isVariantLayer).toBe(true);
     const index = loadSeoIndex(contentRoot);
     expect(index.entries["blog/post-a/en"]).toBeUndefined();
+  });
+});
+
+describe("resetSeoOverlayField", () => {
+  it("removes a seo: key and falls back to empty when no DB baseline", () => {
+    writeSeoFields({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      updates: { main_keyword: "keep", pillar_path: "/en/blog/hub" },
+      contentRoot,
+      ci: stubCi("/en/blog/post-a"),
+    });
+    const result = resetSeoOverlayField({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      fieldPath: "seo.pillar_path",
+      contentRoot,
+      ci: stubCi("/en/blog/post-a"),
+    });
+    expect(result.success).toBe(true);
+    expect(result.noop).toBeFalsy();
+    const text = fs.readFileSync(path.join(contentRoot, "blog", "post-a", "en.yml"), "utf-8");
+    expect(text).toContain("main_keyword: keep");
+    expect(text).not.toMatch(/pillar_path:/);
+  });
+
+  it("returns noop when key is absent", () => {
+    const result = resetSeoOverlayField({
+      contentType: "blog",
+      slug: "post-a",
+      locale: "en",
+      fieldPath: "seo.main_keyword",
+      contentRoot,
+      ci: stubCi("/en/blog/post-a"),
+    });
+    expect(result.success).toBe(true);
+    expect(result.noop).toBe(true);
   });
 });

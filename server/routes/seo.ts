@@ -751,7 +751,7 @@ export function registerSeoRoutes(app: Express): void {
       const contentRoot = getContentRoot(res);
       const { loadSeoIndex, computeClusterHealth, listBrokenClusterRefs } = await import("../seo-index");
       const seoIndex = loadSeoIndex(contentRoot);
-      const clusterHealth = computeClusterHealth(seoIndex, getCI(res));
+      const clusterHealth = computeClusterHealth(seoIndex, getCI(res), contentRoot);
       const brokenClusterRefs = listBrokenClusterRefs(seoIndex, getCI(res));
       const clusters = Object.entries(seoIndex.clusters).map(([hubId, cluster]) => {
         const hub = seoIndex.entries[hubId];

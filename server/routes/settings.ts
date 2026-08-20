@@ -224,7 +224,9 @@ import {
   FixerItemStatus,
   safeYamlLoad,
 } from "./_helpers";
+import { applyLogoStructureFromMaster } from "../menu-logo-structure";
 import { child } from "../logger";
+import { applyLogoStructureFromMaster } from "../menu-logo-structure";
 const log = child({ module: "routes/settings" });
 
 /** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
@@ -2247,6 +2249,8 @@ export function registerSettingsRoutes(app: Express): void {
       result.variant = master.variant;
     }
 
+    applyLogoStructureFromMaster(master, result);
+
     if (master.dropdown) {
       result.dropdown = syncDropdown(
         master.dropdown,
@@ -2364,6 +2368,8 @@ export function registerSettingsRoutes(app: Express): void {
       href: master.href,
       component: master.component,
     };
+
+    applyLogoStructureFromMaster(master, result);
 
     if (master.dropdown) {
       result.dropdown = syncDropdown(master.dropdown, {});

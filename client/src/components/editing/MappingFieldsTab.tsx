@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Calculator, ChevronDown, Info, Link2, Loader2, Pencil, RotateCcw } from "lucide-react";
 import { Link } from "wouter";
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Popover,
   PopoverContent,
@@ -254,14 +255,18 @@ function FieldsEducationBlock({
                 {hasDatabase ? (
                   <p>
                     Reset clears content-type and database overrides for a custom field, restoring the
-                    original database value.
+                    original database value. For SEO fields, Reset removes the locale{" "}
+                    <code className="text-[11px] font-mono">seo:</code> key so the{" "}
+                    <code className="text-[11px] font-mono">seo_*</code> DB baseline shows through (no DB
+                    write-back).
                   </p>
                 ) : (
                   <p>
                     Reset removes the key from this layer file only (
                     <code className="text-[11px] font-mono">{layerFileName || `${locale}.yml`}</code>
                     ). If the value only exists on <code className="text-[11px] font-mono">_common.yml</code>,
-                    reset is a no-op.
+                    reset is a no-op. SEO Reset removes the nested{" "}
+                    <code className="text-[11px] font-mono">seo:</code> key on the locale file.
                   </p>
                 )}
               </div>
@@ -287,6 +292,21 @@ function pathLocalePrefix(urlPath: string): string | null {
   return m ? m[1].toLowerCase() : null;
 }
 
+function seoSourceBadge(row: FieldProvenance | undefined): { label: string; variant: "default" | "secondary" | "outline" } | null {
+  if (!row) return null;
+  if (row.layer_has_key) {
+    return { label: "Locale YAML", variant: "secondary" };
+  }
+  if (row.source === "original") {
+    return { label: "Database baseline", variant: "outline" };
+  }
+  return { label: "Entry default", variant: "outline" };
+}
+
+function isPillarPathOptedOut(row: FieldProvenance | undefined): boolean {
+  return row?.layer_has_key === true && row.effective === null;
+}
+
 function SeoFieldsEditor({
   rows,
   disabled,
@@ -298,6 +318,7 @@ function SeoFieldsEditor({
   slug,
   contentType,
   onSave,
+  onResetField,
   portalContainer,
 }: {
   rows: FieldProvenance[];
@@ -310,23 +331,40 @@ function SeoFieldsEditor({
   slug: string;
   contentType: string;
   onSave: (fields: Record<string, unknown>) => Promise<void>;
+  onResetField?: (fieldPath: string) => Promise<void>;
   portalContainer?: HTMLElement | null;
 }) {
   const { toast } = useToast();
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [resettingField, setResettingField] = useState<string | null>(null);
   const [chooserOpen, setChooserOpen] = useState(false);
   const [seoFieldsEditing, setSeoFieldsEditing] = useState(false);
   const kwRow = rows.find((r) => r.field === "seo.main_keyword");
   const pillarRow = rows.find((r) => r.field === "seo.pillar_path");
   const hubRow = rows.find((r) => r.field === "seo.is_pillar");
+  const [clusterSeoOn, setClusterSeoOn] = useState(() => !isPillarPathOptedOut(pillarRow));
   const [mainKeyword, setMainKeyword] = useState(
     kwRow?.effective == null ? "" : String(kwRow.effective),
   );
   const [pillarPath, setPillarPath] = useState(
-    pillarRow?.effective == null ? "" : String(pillarRow.effective),
+    typeof pillarRow?.effective === "string" ? pillarRow.effective : "",
   );
   const [isPillar, setIsPillar] = useState(hubRow?.effective === true || hubRow?.effective === "true");
+
+  useEffect(() => {
+    if (seoFieldsEditing) return;
+    setClusterSeoOn(!isPillarPathOptedOut(pillarRow));
+    setMainKeyword(kwRow?.effective == null ? "" : String(kwRow.effective));
+    setPillarPath(typeof pillarRow?.effective === "string" ? pillarRow.effective : "");
+    setIsPillar(hubRow?.effective === true || hubRow?.effective === "true");
+  }, [
+    seoFieldsEditing,
+    kwRow?.effective,
+    pillarRow?.effective,
+    pillarRow?.layer_has_key,
+    hubRow?.effective,
+  ]);
 
   const { data: overview } = useQuery<SeoOverviewClusters>({
     queryKey: ["/api/seo/overview"],
@@ -357,6 +395,41 @@ function SeoFieldsEditor({
   const handleTogglePillar = (checked: boolean) => {
     setIsPillar(checked);
     if (checked && canonicalPath) setPillarPath(canonicalPath);
+  };
+
+  const handleClusterSeoToggle = async (checked: boolean) => {
+    if (disabled || saving) return;
+    const previous = clusterSeoOn;
+    setClusterSeoOn(checked);
+    if (!checked) {
+      setIsPillar(false);
+      setChooserOpen(false);
+    }
+    setSaving(true);
+    try {
+      if (!checked) {
+        await onSave({
+          "seo.pillar_path": null,
+          "seo.is_pillar": false,
+        });
+        setSeoFieldsEditing(false);
+      } else {
+        await onSave({
+          "seo.main_keyword": mainKeyword,
+          "seo.pillar_path": typeof pillarPath === "string" ? pillarPath : "",
+          "seo.is_pillar": isPillar,
+        });
+      }
+    } catch (err) {
+      setClusterSeoOn(previous);
+      toast({
+        title: "SEO save failed",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -398,39 +471,68 @@ function SeoFieldsEditor({
         <p className="font-medium text-foreground">SEO fields</p>
         <dl className="space-y-2">
           <div>
-            <dt className="text-xs text-muted-foreground">Main keyword</dt>
-            <dd className="text-sm text-foreground" data-testid="text-seo-main-keyword-preview">
-              {mainKeyword.trim() || (
-                <span className="italic text-muted-foreground font-normal">Not set</span>
-              )}
+            <dt className="text-xs text-muted-foreground">Include in SEO clustering</dt>
+            <dd className="text-sm text-foreground" data-testid="text-seo-cluster-on-preview">
+              {clusterSeoOn ? "On" : "Off — opted out of cluster monitoring"}
             </dd>
           </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Is pillar</dt>
-            <dd className="text-sm text-foreground" data-testid="text-seo-is-pillar-preview">
-              {isPillar ? "Yes — this page is the hub" : "No"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Pillar path</dt>
-            <dd className="text-sm text-foreground font-mono truncate" data-testid="text-seo-pillar-path-preview">
-              {pillarPath.trim() || (
-                <span className="italic text-muted-foreground font-sans font-normal">Not in a cluster</span>
-              )}
-            </dd>
-          </div>
+          {clusterSeoOn ? (
+            <>
+              <div>
+                <dt className="text-xs text-muted-foreground flex items-center gap-2">
+                  Main keyword
+                  {seoSourceBadge(kwRow) && (
+                    <Badge variant={seoSourceBadge(kwRow)!.variant} className="text-[10px] font-normal">
+                      {seoSourceBadge(kwRow)!.label}
+                    </Badge>
+                  )}
+                </dt>
+                <dd className="text-sm text-foreground" data-testid="text-seo-main-keyword-preview">
+                  {mainKeyword.trim() || (
+                    <span className="italic text-muted-foreground font-normal">Not set</span>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground flex items-center gap-2">
+                  Is pillar
+                  {seoSourceBadge(hubRow) && (
+                    <Badge variant={seoSourceBadge(hubRow)!.variant} className="text-[10px] font-normal">
+                      {seoSourceBadge(hubRow)!.label}
+                    </Badge>
+                  )}
+                </dt>
+                <dd className="text-sm text-foreground" data-testid="text-seo-is-pillar-preview">
+                  {isPillar ? "Yes — this page is the hub" : "No"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground flex items-center gap-2">
+                  Pillar path
+                  {seoSourceBadge(pillarRow) && (
+                    <Badge variant={seoSourceBadge(pillarRow)!.variant} className="text-[10px] font-normal">
+                      {seoSourceBadge(pillarRow)!.label}
+                    </Badge>
+                  )}
+                </dt>
+                <dd className="text-sm text-foreground font-mono truncate" data-testid="text-seo-pillar-path-preview">
+                  {pillarPath.trim() || (
+                    <span className="italic text-muted-foreground font-sans font-normal">Not in a cluster</span>
+                  )}
+                </dd>
+              </div>
+            </>
+          ) : null}
         </dl>
       </div>
       ) : (
       <div className="rounded-md border border-border bg-muted/20 p-3 space-y-3 text-sm text-muted-foreground">
         <p className="font-medium text-foreground">SEO fields</p>
         <p>
-          <span className="font-medium text-foreground">Main keyword</span> is this page&apos;s query.{" "}
-          <span className="font-medium text-foreground">Is pillar</span> means this page is the hub — save
-          fills <span className="font-medium text-foreground">Pillar path</span> with this page&apos;s URL.
-          Supporting pages set Pillar path to that hub URL (same locale prefix). Empty path = not in a
-          cluster. Duplicate pillars warn only; they are not auto-cleared. Cluster map chips show sitemap
-          lastmod from editorial <code className="font-mono">updated_at</code> (content change, not Git).
+          <span className="font-medium text-foreground">Include in SEO clustering</span> saves
+          immediately. Off excludes this page from cluster monitoring (writes{" "}
+          <code className="font-mono text-xs">pillar_path: null</code>) even when the content type has SEO
+          monitoring on. When on, set keyword and hub below, then save.
         </p>
         <button
           type="button"
@@ -448,27 +550,81 @@ function SeoFieldsEditor({
               <code className="font-mono">
                 {directory}/{slug}/{layerFileName || `${locale}.yml`}
               </code>
-              . Index: <code className="font-mono">{"{contentRoot}/seo-index.json"}</code> (content GitHub,
-              like image-registry, not GCS <code className="font-mono">sync/</code>). Constants in{" "}
-              <code className="font-mono">server/content-types.ts</code>. Not{" "}
-              <code className="font-mono">field_mapping</code>. Rejected on{" "}
-              <code className="font-mono">_common.yml</code>.{" "}
-              <code className="font-mono">markFileAsModified</code> after disk; auto-commit throttle
-              batches YAML + JSON with the same author. Chip dates:{" "}
-              <code className="font-mono">resolveEntryUpdatedAt</code> in{" "}
-              <code className="font-mono">server/content-types.ts</code> (locale{" "}
-              <code className="font-mono">updated_at</code>, else{" "}
-              <code className="font-mono">published_at</code> on{" "}
-              <code className="font-mono">_common.yml</code>). Not{" "}
-              <code className="font-mono">.sync-state.json</code>.
+              . Opt-out persists as <code className="font-mono">seo.pillar_path: null</code> (empty string is a
+              cluster gap, not opt-out). DB baselines via <code className="font-mono">field_mapping</code>{" "}
+              <code className="font-mono">seo_main_keyword</code> /{" "}
+              <code className="font-mono">seo_is_pillar</code> /{" "}
+              <code className="font-mono">seo_pillar_path</code> (
+              <code className="font-mono">server/seo-effective-seo.ts</code>). Index:{" "}
+              <code className="font-mono">{"{contentRoot}/seo-index.json"}</code>. Rejected on{" "}
+              <code className="font-mono">_common.yml</code>.
             </p>
           </div>
         )}
         <div className="space-y-3 pt-1">
+          <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-background/50 px-3 py-2">
+            <div className="min-w-0 space-y-0.5">
+              <Label htmlFor="seo-cluster-on" className="text-xs text-foreground">
+                Include in SEO clustering
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {saving
+                  ? "Saving…"
+                  : clusterSeoOn
+                    ? "Keyword and pillar fields are editable."
+                    : "Page is excluded from cluster monitoring."}
+              </p>
+            </div>
+            <Switch
+              id="seo-cluster-on"
+              checked={clusterSeoOn}
+              disabled={disabled || saving}
+              onCheckedChange={(checked) => void handleClusterSeoToggle(checked)}
+              data-testid="switch-seo-cluster-on"
+            />
+          </div>
+          {clusterSeoOn ? (
+            <>
           <div className="space-y-1">
-            <Label htmlFor="seo-main-keyword" className="text-xs text-foreground">
-              Main keyword
-            </Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="seo-main-keyword" className="text-xs text-foreground flex items-center gap-2">
+                Main keyword
+                {seoSourceBadge(kwRow) && (
+                  <Badge variant={seoSourceBadge(kwRow)!.variant} className="text-[10px] font-normal">
+                    {seoSourceBadge(kwRow)!.label}
+                  </Badge>
+                )}
+              </Label>
+              {onResetField && kwRow?.layer_has_key && !disabled && (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  title="Reset to database baseline"
+                  disabled={!!resettingField || saving}
+                  data-testid="button-reset-seo-main_keyword"
+                  onClick={() => {
+                    setResettingField("seo.main_keyword");
+                    void onResetField("seo.main_keyword")
+                      .then(() => {
+                        setMainKeyword(
+                          kwRow?.baseline != null && kwRow.baseline !== ""
+                            ? String(kwRow.baseline)
+                            : "",
+                        );
+                      })
+                      .finally(() => setResettingField(null));
+                  }}
+                >
+                  {resettingField === "seo.main_keyword" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              )}
+            </div>
             <Input
               id="seo-main-keyword"
               className="bg-background"
@@ -486,14 +642,78 @@ function SeoFieldsEditor({
               onCheckedChange={(v) => handleTogglePillar(v === true)}
               data-testid="checkbox-seo-is-pillar"
             />
-            <Label htmlFor="seo-is-pillar" className="text-xs text-foreground">
+            <Label htmlFor="seo-is-pillar" className="text-xs text-foreground flex items-center gap-2 flex-1">
               Is pillar
+              {seoSourceBadge(hubRow) && (
+                <Badge variant={seoSourceBadge(hubRow)!.variant} className="text-[10px] font-normal">
+                  {seoSourceBadge(hubRow)!.label}
+                </Badge>
+              )}
             </Label>
+            {onResetField && hubRow?.layer_has_key && !disabled && (
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                title="Reset to database baseline"
+                disabled={!!resettingField || saving}
+                data-testid="button-reset-seo-is_pillar"
+                onClick={() => {
+                  setResettingField("seo.is_pillar");
+                  void onResetField("seo.is_pillar")
+                    .then(() => {
+                      setIsPillar(hubRow?.baseline === true || hubRow?.baseline === "true");
+                    })
+                    .finally(() => setResettingField(null));
+                }}
+              >
+                {resettingField === "seo.is_pillar" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            )}
           </div>
           <div className="space-y-1">
-            <Label htmlFor="seo-pillar-path" className="text-xs text-foreground">
-              Pillar path
-            </Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="seo-pillar-path" className="text-xs text-foreground flex items-center gap-2">
+                Pillar path
+                {seoSourceBadge(pillarRow) && (
+                  <Badge variant={seoSourceBadge(pillarRow)!.variant} className="text-[10px] font-normal">
+                    {seoSourceBadge(pillarRow)!.label}
+                  </Badge>
+                )}
+              </Label>
+              {onResetField && pillarRow?.layer_has_key && !disabled && (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  title="Reset to database baseline"
+                  disabled={!!resettingField || saving || pathLocked}
+                  data-testid="button-reset-seo-pillar_path"
+                  onClick={() => {
+                    setResettingField("seo.pillar_path");
+                    void onResetField("seo.pillar_path")
+                      .then(() => {
+                        setPillarPath(
+                          typeof pillarRow?.baseline === "string" ? pillarRow.baseline : "",
+                        );
+                      })
+                      .finally(() => setResettingField(null));
+                  }}
+                >
+                  {resettingField === "seo.pillar_path" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              )}
+            </div>
             <div className="flex gap-2 min-w-0">
               <Input
                 id="seo-pillar-path"
@@ -578,7 +798,7 @@ function SeoFieldsEditor({
               </Popover>
             </div>
             <p className="text-xs">
-              Choose a hub or type a path. Empty = cluster gap; null = intentional opt-out.
+              Choose a hub or type a path. Empty path = cluster gap (still monitored).
             </p>
             {isVariantLayer && (
               <p className="text-xs" data-testid="text-pillar-chooser-variant-live">
@@ -642,8 +862,10 @@ function SeoFieldsEditor({
               Done editing
             </Button>
           </div>
+            </>
+          ) : null}
         </div>
-        {contentType === "blog" ? (
+        {contentType === "blog" && clusterSeoOn ? (
           <p className="text-xs">
             Cluster keyword/URL on the <strong>Fields</strong> tab are temporary holding columns — not the hub.
           </p>
@@ -756,6 +978,44 @@ export function EntrySeoClusterFields({
     invalidate();
   };
 
+  const resetSeoOverlayField = async (fieldPath: string) => {
+    const headers = await authHeaders();
+    const author = await resolveAuthorName();
+    const res = await fetch(
+      `/api/content-types/${encodeURIComponent(contentType)}/field-reset/${encodeURIComponent(slug)}`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          field: fieldPath,
+          locale,
+          variant: variantParam,
+          author: author || undefined,
+        }),
+      },
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      noop?: boolean;
+      message?: string;
+    };
+    if (!res.ok) {
+      throw new Error(body.error || "Failed to reset SEO field");
+    }
+    if (body.noop) {
+      toast({
+        title: "Nothing to reset",
+        description: body.message || body.error || "Field is not set on locale seo:.",
+      });
+    } else {
+      toast({
+        title: "SEO field reset",
+        description: `"${fieldPath}" restored to the database baseline (locale YAML key removed).`,
+      });
+    }
+    invalidate();
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 text-muted-foreground text-sm py-2" data-testid="seo-fields-loading">
@@ -778,6 +1038,18 @@ export function EntrySeoClusterFields({
         slug={slug}
         contentType={contentType}
         onSave={saveSeoFields}
+        onResetField={async (fieldPath) => {
+          try {
+            await resetSeoOverlayField(fieldPath);
+          } catch (err) {
+            toast({
+              title: "SEO reset failed",
+              description: err instanceof Error ? err.message : String(err),
+              variant: "destructive",
+            });
+            throw err;
+          }
+        }}
         portalContainer={portalContainer}
       />
       <AlertDialog

@@ -147,6 +147,10 @@ import {
 import { ensurePublishedAtOnce } from "../published-at";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveSingleVars } from "../single-resolver";
+import { getValidationCacheService } from "../services/validationCacheService";
+import { validatePublishedVariantLayer } from "../services/validatePublishedVariant";
+import { buildEntryKey } from "../../scripts/validation/shared/entryKey";
+import { scheduleOnSaveValidation } from "../services/onSaveValidation";
 import {
   normalizeLocale,
   getSupportedLocales,
@@ -237,6 +241,11 @@ function getContentRoot(res: Response): string {
 function getContentRootName(res: Response): string {
   const cr = getContentRoot(res);
   return path.isAbsolute(cr) ? path.relative(process.cwd(), cr) : cr;
+}
+function getValidationCache(res: Response) {
+  return (
+    (res.locals.site as any)?.validationCache ?? getValidationCacheService()
+  );
 }
 
 
@@ -408,11 +417,128 @@ export function registerVersioningRoutes(app: Express): void {
         }
 
         const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
-        const updated = { ...existing, [locale]: { variants: parseResult.data.variants } };
+        const prevVariants = existing[locale]?.variants ?? [];
+        const prevBySlug = new Map(prevVariants.map((v) => [v.slug, v.allocation]));
+        const newVariants = parseResult.data.variants;
+        const newSlugSet = new Set(newVariants.map((v) => v.slug));
+
+        const newlyPublished = newVariants.filter((v) => {
+          const prev = prevBySlug.get(v.slug) ?? 0;
+          return prev === 0 && v.allocation > 0;
+        });
+        const unpublishedSlugs: string[] = [];
+        for (const prev of prevVariants) {
+          const next = newVariants.find((v) => v.slug === prev.slug);
+          if (prev.allocation > 0 && (!next || next.allocation === 0)) {
+            unpublishedSlugs.push(prev.slug);
+          }
+        }
+        for (const prev of prevVariants) {
+          if (prev.allocation > 0 && !newSlugSet.has(prev.slug) && !unpublishedSlugs.includes(prev.slug)) {
+            unpublishedSlugs.push(prev.slug);
+          }
+        }
+
+        if (newlyPublished.length > 0 && !parseResult.data.confirm_publish_variants) {
+          res.status(400).json({
+            error: "action_required",
+            code: "confirm_publish_variants",
+            message:
+              "Assigning traffic publishes these variants and runs validation. Confirm to continue.",
+            variants: newlyPublished.map((v) => v.slug),
+          });
+          return;
+        }
+
+        const root = getContentRoot(res);
+        const ci = getCI(res);
+        const cache = getValidationCache(res);
+        const warningsByVariant: Record<string, unknown[]> = {};
+        const issuesByVariant: Record<string, unknown[]> = {};
+        const validationBySlug = new Map<
+          string,
+          Awaited<ReturnType<typeof validatePublishedVariantLayer>>
+        >();
+
+        if (newlyPublished.length > 0) {
+          const commonData =
+            (ci.loadCommonData(contentType, resolved.slug) as Record<string, unknown>) ||
+            {};
+          for (const v of newlyPublished) {
+            const vp = versioningManager.getVariantFilePath(
+              contentType,
+              resolved.slug,
+              v.slug,
+              locale,
+            );
+            const variantRaw =
+              (ci.safeYamlLoad(fs.readFileSync(vp, "utf-8")) as Record<string, unknown>) ||
+              {};
+            const result = await validatePublishedVariantLayer({
+              contentType,
+              slug: resolved.slug,
+              locale,
+              variantSlug: v.slug,
+              contentRoot: root,
+              ci,
+              variantRaw,
+              commonData,
+            });
+            validationBySlug.set(v.slug, result);
+            if (!result.ok) {
+              issuesByVariant[v.slug] = result.errors;
+            }
+            if (result.warnings.length) {
+              warningsByVariant[v.slug] = result.warnings;
+            }
+          }
+
+          if (Object.keys(issuesByVariant).length > 0) {
+            res.status(400).json({
+              error: "Published variant validation failed",
+              code: "variant_validation_failed",
+              issuesByVariant,
+              warningsByVariant:
+                Object.keys(warningsByVariant).length > 0
+                  ? warningsByVariant
+                  : undefined,
+            });
+            return;
+          }
+        }
+
+        const updated = { ...existing, [locale]: { variants: newVariants } };
         versioningManager.updateVersioning(contentType, resolved.slug, updated);
-        invalidateContentCaches(contentType, getCI(res));
+        invalidateContentCaches(contentType, ci);
+
+        for (const slug of unpublishedSlugs) {
+          cache.clearEntryKey(buildEntryKey(contentType, resolved.slug, locale, slug));
+        }
+
+        for (const [slug, result] of validationBySlug) {
+          if (!result.ok || !result.validators || !result.contentFile) continue;
+          cache.applyValidatorResults(result.validators, {
+            contentFiles: [result.contentFile],
+            entryKeys: [result.entryKey],
+            markSiteWide: false,
+          });
+        }
+
+        if (newlyPublished.length > 0 || unpublishedSlugs.length > 0) {
+          await cache.flush();
+        }
+
         // Warm live + traffic-receiving variants on next anonymous render (invalidate is enough to force MISS).
-        res.json({ success: true, contentType, contentSlug: resolved.slug, locale });
+        res.json({
+          success: true,
+          contentType,
+          contentSlug: resolved.slug,
+          locale,
+          published: newlyPublished.map((v) => v.slug),
+          unpublished: unpublishedSlugs,
+          warningsByVariant:
+            Object.keys(warningsByVariant).length > 0 ? warningsByVariant : undefined,
+        });
       } catch (error) {
         res.status(400).json({
           error:
@@ -848,6 +974,9 @@ export function registerVersioningRoutes(app: Express): void {
       clearSsrSchemaCache();
       invalidateContentCaches(contentType, getCI(res));
 
+      const cache = getValidationCache(res);
+      cache.clearEntryKey(buildEntryKey(contentType, resolved.slug, locale, variantSlug));
+
       if (resolved.templateMode) {
         markFileAsModified(`${folder}/single.${locale}.yml`, auth.author || "api", undefined, root);
         markFileAsModified(`${folder}/single.${variantSlug}.${locale}.yml`, auth.author || "api", undefined, root);
@@ -858,6 +987,18 @@ export function registerVersioningRoutes(app: Express): void {
         getCI(res).refresh();
         refreshSitemapEntriesForContentKey(contentType, resolved.slug, [locale]);
       }
+
+      scheduleOnSaveValidation({
+        contentRoot: root,
+        contentRootName: getContentRootName(res),
+        ci: getCI(res),
+        cache,
+        contentType,
+        slug: resolved.slug,
+        locale,
+        filePath: defaultFilePath,
+      });
+      await cache.flush();
 
       res.json({ success: true });
     } catch (error) {
@@ -1031,6 +1172,10 @@ export function registerVersioningRoutes(app: Express): void {
       getCI(res).invalidateCommonFields(contentType);
       clearSsrSchemaCache();
       invalidateContentCaches(contentType, getCI(res));
+
+      const cache = getValidationCache(res);
+      cache.clearEntryKey(buildEntryKey(contentType, resolved.slug, locale, variantSlug));
+      await cache.flush();
 
       const updated = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
       const availableLocales = resolved.templateMode

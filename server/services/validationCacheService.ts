@@ -358,6 +358,17 @@ export class ValidationCacheService {
     this.runMetaByEntry[entryKey] = { ...existing, dirty: true };
   }
 
+  /** Remove all issues and run-meta for an entry key (e.g. unpublish / delete variant). */
+  clearEntryKey(entryKey: string): void {
+    const ids = [...(this.indexes.byEntry[entryKey] ?? [])];
+    for (const id of ids) {
+      delete this.issues[id];
+    }
+    delete this.indexes.byEntry[entryKey];
+    delete this.runMetaByEntry[entryKey];
+    this.indexes = rebuildIndexes(this.issues, this.indexes.byUrl);
+  }
+
   markScopeDirty(scope: ValidationScope): void {
     const existing = this.runMetaByScope[scope] ?? {
       lastRunAt: new Date().toISOString(),
@@ -378,6 +389,8 @@ export class ValidationCacheService {
         : null;
 
     for (const file of contentFiles) {
+      // Shared public URLs: only live (non-variant) rows own byUrl → entryKey.
+      if (file.variant) continue;
       const ek = entryKeyFromContentFile(file);
       const url = getCanonicalUrl(file);
       this.indexes.byUrl[url] = ek;

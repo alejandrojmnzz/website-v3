@@ -31,28 +31,58 @@ function findEmptyFields(obj: unknown, results: string[], currentPath: string = 
   }
 }
 
-function findInternalLinks(obj: unknown, links: string[]): void {
+interface InternalLinkHit {
+  link: string;
+  fieldPath: string;
+  /** Section component type when the link sits under sections[i]. */
+  component?: string;
+}
+
+function findInternalLinks(
+  obj: unknown,
+  hits: InternalLinkHit[],
+  currentPath = "",
+  sectionType?: string,
+): void {
   if (!obj || typeof obj !== "object") {
     if (typeof obj === "string") {
       const urlPattern = /(?:^|\s)(\/(?:en|es)\/[^\s"'<>]*)/g;
       let match: RegExpExecArray | null;
       while ((match = urlPattern.exec(obj)) !== null) {
-        links.push(match[1]);
+        hits.push({
+          link: match[1],
+          fieldPath: currentPath || "(root)",
+          component: sectionType,
+        });
       }
     }
     return;
   }
 
   if (Array.isArray(obj)) {
-    for (const item of obj) {
-      findInternalLinks(item, links);
-    }
+    const underSections =
+      currentPath === "sections" || currentPath.endsWith(".sections");
+    obj.forEach((item, index) => {
+      const itemPath = `${currentPath}[${index}]`;
+      let nextSectionType = sectionType;
+      if (
+        underSections &&
+        item &&
+        typeof item === "object" &&
+        !Array.isArray(item)
+      ) {
+        const t = (item as Record<string, unknown>).type;
+        if (typeof t === "string" && t.length > 0) nextSectionType = t;
+      }
+      findInternalLinks(item, hits, itemPath, nextSectionType);
+    });
     return;
   }
 
   const record = obj as Record<string, unknown>;
-  for (const value of Object.values(record)) {
-    findInternalLinks(value, links);
+  for (const [key, value] of Object.entries(record)) {
+    const fieldPath = currentPath ? `${currentPath}.${key}` : key;
+    findInternalLinks(value, hits, fieldPath, sectionType);
   }
 }
 
@@ -176,18 +206,21 @@ export const contentQualityValidator: Validator = {
         });
       }
 
-      const internalLinks: string[] = [];
+      const internalLinks: InternalLinkHit[] = [];
       findInternalLinks(parsed, internalLinks);
       const locale = file.locale === "_common" ? "en" : file.locale;
-      for (const link of internalLinks) {
-        if (!publicUrls.isLive(link, locale)) {
+      for (const hit of internalLinks) {
+        if (!publicUrls.isLive(hit.link, locale)) {
           brokenLinks++;
+          const where = hit.component
+            ? ` in component "${hit.component}"`
+            : "";
           errors.push({
             type: "error",
             code: "BROKEN_INTERNAL_LINK",
-            message: `Broken internal link: "${link}"`,
+            message: `Broken internal link: "${hit.link}"${where}`,
             file: file.filePath,
-            suggestion: "Fix the URL or remove the broken link. Confirm with Redirects → Test a URL.",
+            suggestion: `Found at ${hit.fieldPath}. Fix the URL or remove the broken link. Confirm with Redirects → Test a URL.`,
           });
         }
       }

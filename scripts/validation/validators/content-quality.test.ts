@@ -176,6 +176,10 @@ describe("contentQualityValidator broken internal links", () => {
     };
 
     const result = await contentQualityValidator.run(context(file));
-    expect(result.errors.some((e) => e.code === "BROKEN_INTERNAL_LINK")).toBe(true);
+    const broken = result.errors.filter((e) => e.code === "BROKEN_INTERNAL_LINK");
+    expect(broken.length).toBeGreaterThan(0);
+    expect(broken[0]?.message).toContain("/en/missing-page-xyz-not-real");
+    expect(broken[0]?.message).toContain('component "hero"');
+    expect(broken[0]?.suggestion).toMatch(/sections\[0\]/);
   });
 });

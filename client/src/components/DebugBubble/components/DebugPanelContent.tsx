@@ -137,10 +137,11 @@ export interface DebugPanelContentProps {
   expandedFolders: Set<string>;
   toggleFolder: (folder: string) => void;
   setCreateContentModalOpen: (v: boolean) => void;
-  handleDuplicatePage: (url: string) => void;
-  handleDeletePage: (url: string) => void;
-  handleDownloadYml: (url: string) => void;
-  handleEditYaml: (url: string) => void;
+  handleDuplicatePage: (url: SitemapUrl) => void;
+  handleDeletePage: (url: SitemapUrl) => void;
+  handleDownloadYml: (url: SitemapUrl) => void;
+  handleEditYaml: (url: SitemapUrl) => void;
+  handleEditPageMeta: (url: SitemapUrl) => void;
   onEditContentTypesYml: () => void;
   handleRefreshCache: (url: SitemapUrl) => void;
   validationSummary: Record<string, { errorCount: number; warningCount: number }>;
@@ -1204,6 +1205,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
           handleDeletePage={props.handleDeletePage}
           handleDownloadYml={props.handleDownloadYml}
           handleEditYaml={props.handleEditYaml}
+          handleEditPageMeta={props.handleEditPageMeta}
           handleRefreshCache={props.handleRefreshCache}
           validationSummary={props.validationSummary}
           onOpenDiagnosticsForUrl={props.onOpenDiagnosticsForUrl}

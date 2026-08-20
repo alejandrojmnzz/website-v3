@@ -13,6 +13,7 @@ import { isSharedLayoutType } from "@/lib/sharedLayoutEntry";
 import { computeDirtyMetaKeys, liveSnippetClearBlocked } from "@/lib/buildMetaSaveOperations";
 import { useSeoModalSaves } from "@/hooks/useSeoModalSaves";
 import type { SeoMeta } from "@/components/DebugBubble/types";
+import { ManagedSeoModal, type ManagedSeoModalTarget } from "@/components/editing/ManagedSeoModal";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 import {
   restoreEditModeScrollPosition,
@@ -69,9 +70,11 @@ import { SeoModal } from "./components/SeoModal";
 import { SiteManagerModal } from "./components/SiteManagerModal";
 import { SwitchSiteModal } from "./components/SwitchSiteModal";
 
-async function fetchPageDiagnostics(url: string): Promise<PageDiagnostics> {
+async function fetchPageDiagnostics(url: string, variant?: string | null): Promise<PageDiagnostics> {
   const token = getDebugToken();
-  const res = await fetch(`/api/diagnostics/page?url=${encodeURIComponent(url)}`, {
+  const params = new URLSearchParams({ url });
+  if (variant) params.set("variant", variant);
+  const res = await fetch(`/api/diagnostics/page?${params.toString()}`, {
     headers: {
       ...getSessionHeaders(),
       ...(token ? { Authorization: `Token ${token}` } : {}),
@@ -315,6 +318,8 @@ export function DebugBubble() {
   
   // SEO modal state
   const [seoModalOpen, setSeoModalOpen] = useState(false);
+  const [managedSeoModalOpen, setManagedSeoModalOpen] = useState(false);
+  const [managedSeoModalTarget, setManagedSeoModalTarget] = useState<ManagedSeoModalTarget | null>(null);
   const [seoLoading, setSeoLoading] = useState(false);
   const [seoData, setSeoData] = useState<{
     meta: Record<string, unknown>;
@@ -377,13 +382,20 @@ export function DebugBubble() {
   const [pageDiagnosticsError, setPageDiagnosticsError] = useState<string | null>(null);
   const lastDiagnosticsUrlRef = useRef<string | null>(null);
 
+  const getUrlVariant = (): string | undefined => {
+    if (typeof window === "undefined") return undefined;
+    const q = new URLSearchParams(window.location.search);
+    return q.get("variant") || q.get("force_variant") || undefined;
+  };
+
   const refreshPageDiagnostics = async () => {
     const url = pageDiagnostics?.url ?? lastDiagnosticsUrlRef.current;
     if (!url) return;
     lastDiagnosticsUrlRef.current = url;
+    const variant = getUrlVariant() ?? null;
     setPageDiagnosticsLoading(true);
     try {
-      const data = await fetchPageDiagnostics(url);
+      const data = await fetchPageDiagnostics(url, variant);
       setPageDiagnostics(data);
       setPageDiagnosticsError(null);
     } catch (err) {
@@ -509,6 +521,7 @@ export function DebugBubble() {
 
     const url = diagnosticsUrl;
     lastDiagnosticsUrlRef.current = url;
+    const variant = getUrlVariant() ?? null;
     const token = getDebugToken();
     const authHeaders: Record<string, string> = {
       ...getSessionHeaders(),
@@ -520,15 +533,22 @@ export function DebugBubble() {
     // per-page validators once so issues like missing meta surface on first
     // visit without a manual "Run validation" click.
     const autoValidateIfNeverRun = async (data: PageDiagnostics): Promise<PageDiagnostics> => {
-      if (data.cached || autoValidatedUrlsRef.current.has(url)) return data;
-      autoValidatedUrlsRef.current.add(url);
+      if (data.validationSkippedReason === "unpublished_variant") return data;
+      if (data.cached || autoValidatedUrlsRef.current.has(url + (variant ? `@${variant}` : ""))) {
+        return data;
+      }
+      autoValidatedUrlsRef.current.add(url + (variant ? `@${variant}` : ""));
       try {
         await fetch("/api/validation/run-page", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...authHeaders },
-          body: JSON.stringify({ url, validators: PER_PAGE_VALIDATORS }),
+          body: JSON.stringify({
+            url,
+            validators: PER_PAGE_VALIDATORS,
+            ...(variant ? { variant } : {}),
+          }),
         });
-        return await fetchPageDiagnostics(url);
+        return await fetchPageDiagnostics(url, variant);
       } catch {}
       return data;
     };
@@ -537,7 +557,7 @@ export function DebugBubble() {
     setPageDiagnostics(null);
     setPageDiagnosticsError(null);
     setPageErrorsModalOpen(false);
-    fetchPageDiagnostics(url)
+    fetchPageDiagnostics(url, variant)
       .then(async (data) => {
         const finalData = await autoValidateIfNeverRun(data);
         setPageDiagnostics(finalData);
@@ -1088,11 +1108,6 @@ export function DebugBubble() {
     } catch (e) {
       console.error('Clear conflict failed:', e);
     }
-  };
-
-  const getUrlVariant = (): string | undefined => {
-    const q = new URLSearchParams(window.location.search);
-    return q.get("variant") || q.get("force_variant") || undefined;
   };
 
   // Handle session check (validates without clearing cache first)
@@ -1804,6 +1819,21 @@ export function DebugBubble() {
     }
   };
 
+  const handleEditPageMeta = (url: SitemapUrl) => {
+    const urlPath = new URL(url.loc).pathname;
+    const info = detectContentInfo(urlPath, contentTypesMap);
+    const type = url.content_type || info.type;
+    const slug = url.slug || info.slug;
+    if (!type || !slug) {
+      toast({ title: "Cannot edit page meta", description: "Unrecognized content type", variant: "destructive" });
+      return;
+    }
+    const pathLocale =
+      url.locale || (urlPath.startsWith("/es/") ? "es" : urlPath.startsWith("/en/") ? "en" : "en");
+    setManagedSeoModalTarget({ contentType: type, slug, locale: pathLocale });
+    setManagedSeoModalOpen(true);
+  };
+
   const handleOpenDiagnosticsForUrl = async (urlPath: string) => {
     lastDiagnosticsUrlRef.current = urlPath;
     setPageDiagnosticsLoading(true);
@@ -1811,7 +1841,7 @@ export function DebugBubble() {
     setPageDiagnosticsError(null);
     setPageErrorsModalOpen(true);
     try {
-      const data = await fetchPageDiagnostics(urlPath);
+      const data = await fetchPageDiagnostics(urlPath, getUrlVariant() ?? null);
       setPageDiagnostics(data);
     } catch (err) {
       setPageDiagnosticsError(err instanceof Error ? err.message : "Failed to load diagnostics");
@@ -2135,6 +2165,7 @@ export function DebugBubble() {
     handleDeletePage,
     handleDownloadYml,
     handleEditYaml,
+    handleEditPageMeta,
     onEditContentTypesYml: () => setShowContentTypesYmlEditor(true),
     handleRefreshCache,
     validationSummary,
@@ -2542,6 +2573,14 @@ export function DebugBubble() {
         seoContext={seoData?.context ?? (getUrlVariant() ? "variant" : "live")}
         seoVariant={seoData?.variant ?? getUrlVariant()}
         metaOverrides={seoData?.metaOverrides ?? []}
+      />
+      <ManagedSeoModal
+        open={managedSeoModalOpen}
+        onOpenChange={(open) => {
+          setManagedSeoModalOpen(open);
+          if (!open) setManagedSeoModalTarget(null);
+        }}
+        target={managedSeoModalTarget}
       />
       {showYamlEditor && yamlEditorInfo && (
         <Suspense fallback={null}>

@@ -1431,6 +1431,8 @@ export type VersioningFile = z.infer<typeof versioningFileSchema>;
 
 export const versioningUpdateSchema = z.object({
   variants: z.array(versioningVariantSchema).min(1),
+  /** Required when any variant transitions from 0% → >0% traffic (publishes). */
+  confirm_publish_variants: z.boolean().optional(),
 }).strict();
 
 export type VersioningUpdate = z.infer<typeof versioningUpdateSchema>;

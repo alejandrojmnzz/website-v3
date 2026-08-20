@@ -40,6 +40,14 @@ import {
   type LayoutTarget,
 } from "../lib/page-tool-helpers.js";
 import {
+  SEO_INCLUDE_IN_CLUSTERING,
+  deriveIncludeInClustering,
+  expandSeoClusterToggle,
+  isSeoIncludeInClusteringPath,
+} from "../lib/seo-cluster-toggle.js";
+import { isSeoMonitoringEnabled } from "../../server/seo-monitoring.js";
+import type { SeoBlock } from "../../server/seo-fields.js";
+import {
   pathForLayoutTarget,
   versioningApiSlug,
   sharedTemplateBlastSideEffect,
@@ -883,11 +891,13 @@ export function registerPageTools(
   mcp.tool(
     "get_entry_seo",
     "Get the SEO/meta block plus structured-data preview for a page, with the identifying envelope (contentType, slug, locale, locales, urls). " +
-    "Returns meta, seo (locale seo.main_keyword / pillar_path / is_pillar), index (live seo-index.json row; omitted for variants), " +
+    "Returns meta, seo (locale seo.main_keyword / pillar_path / is_pillar), include_in_clustering (derived: false only when seo.pillar_path is explicit null), " +
+    "index (live seo-index.json row; omitted for variants), " +
     "validation_issues (cached SEO-category issues from meta / seo-depth / seo-intent), and a rich schema_org block: " +
     "resolved JSON-LD documents + sources (same pipeline as SSR section contributors + Organization dual-emit), " +
     "content-type requirements / hero companion gaps. " +
     "Use this to inspect what Google gets — not for editing schema_org YAML (use get_entry_content / section tools). " +
+    "Toggle clustering via update_fields seo.include_in_clustering (MCP-only; requires type seo_monitoring.enabled). " +
     "Do not expect a derived JSON-LD dump on get_entry_content. Requires content_view or seo_edit. " +
     "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file.",
     {
@@ -988,6 +998,7 @@ export function registerPageTools(
                   variant,
                   meta: result.data.meta,
                   seo: result.data.seo || {},
+                  include_in_clustering: deriveIncludeInClustering(result.data.seo),
                   index: null,
                   schema_org,
                   validation_issues: [],
@@ -1041,6 +1052,7 @@ export function registerPageTools(
         ...(payload.urls ? { urls: payload.urls } : {}),
         meta: payload.data.meta,
         seo: payload.data.seo || {},
+        include_in_clustering: deriveIncludeInClustering(payload.data.seo),
         index: getSeoIndexEntry(payload.contentType, payload.slug, payload.locale, contentPath) || null,
         schema_org,
         validation_issues,
@@ -1485,7 +1497,10 @@ export function registerPageTools(
     "updates length 1 = single-field edit. May mix meta.*, safe top-level body fields, and fields under ONE sections.N.* index. " +
     "Rejects two or more distinct section indexes (split into separate calls so bindings can propagate). " +
     "sections.N.* patches an existing slot only — missing index fails (reload, or edit single.{locale}.yml with layout_target type_single). Does not create overlay patches or grow sections[]. " +
-    "field_path routing: sections.* and safe top-level → locale; seo.main_keyword|seo.pillar_path|seo.is_pillar → locale seo: (never _common.yml, no meta_target); meta.robots/priority/change_frequency → _common.yml; " +
+    "field_path routing: sections.* and safe top-level → locale; seo.main_keyword|seo.pillar_path|seo.is_pillar → locale seo: (never _common.yml, no meta_target); " +
+    "seo.include_in_clustering (MCP-only boolean, never YAML) expands to pillar_path/is_pillar — requires content-type seo_monitoring.enabled; " +
+    "on=true needs non-empty seo.pillar_path or seo.is_pillar:true after merge; on=false → pillar_path:null + is_pillar:false; " +
+    "raw seo.pillar_path:null still opts out (warns). meta.robots/priority/change_frequency → _common.yml; " +
     "other known meta.* → locale; unknown meta.* requires meta_target locale|common.\n\n" +
     "Live gate: live writes need meta.page_title + meta.description; editor.required cannot be cleared on live. Drafts exempt.\n" +
     "CIRCULAR TRAP: if both meta.description and body description are empty, set BOTH in this one updates[] call.\n\n" +
@@ -1497,7 +1512,9 @@ export function registerPageTools(
       slug: z.string().describe("Page slug"),
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
       updates: z.array(z.object({
-        field_path: z.string().describe("Dot path: sections.0.title, meta.description, seo.main_keyword, title, …"),
+        field_path: z.string().describe(
+          "Dot path: sections.0.title, meta.description, seo.main_keyword, seo.include_in_clustering, title, …",
+        ),
         value: z.unknown().describe("New value"),
         meta_target: z.enum(["locale", "common"]).optional().describe(
           "Required for unknown meta.* keys. Known meta auto-routes.",
@@ -1510,7 +1527,7 @@ export function registerPageTools(
       confirm_layout_target: confirmLayoutTargetSchema,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, locale, updates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
+    async ({ slug, locale, updates: inputUpdates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
@@ -1522,6 +1539,9 @@ export function registerPageTools(
       } catch (e) {
         return fail((e as Error).message);
       }
+
+      let updates = inputUpdates;
+      const clusterToggleWarnings: McpWarning[] = [];
 
       const pathCounts = new Map<string, number>();
       for (const u of updates) {
@@ -1572,12 +1592,15 @@ export function registerPageTools(
       }
 
       const safeTop = safeTopLevelFieldsForConfig(resolved.config);
-      const isSeoPath = (p: string) => isKnownSeoFieldPath(p) || p === `${SEO_YAML_KEY}.pillar`;
+      const isSeoPath = (p: string) =>
+        isKnownSeoFieldPath(p) ||
+        p === `${SEO_YAML_KEY}.pillar` ||
+        isSeoIncludeInClusteringPath(p);
       for (const u of updates) {
         const p = u.field_path;
         if (p.startsWith("sections.") || p.startsWith("meta.") || isSeoPath(p) || safeTop.has(p)) continue;
         return fail(
-          `Disallowed field_path '${p}'. Must start with 'sections.', 'meta.', 'seo.main_keyword|seo.pillar_path|seo.is_pillar', or be one of: ${[...safeTop].join(", ")}.`,
+          `Disallowed field_path '${p}'. Must start with 'sections.', 'meta.', 'seo.main_keyword|seo.pillar_path|seo.is_pillar|seo.include_in_clustering', or be one of: ${[...safeTop].join(", ")}.`,
         );
       }
       for (const u of updates) {
@@ -1616,7 +1639,7 @@ export function registerPageTools(
         contentPath,
         variant,
         confirm_live_edit,
-        extraArgsHint: { updates, layout_target, confirm_layout_target },
+        extraArgsHint: { updates: inputUpdates, layout_target, confirm_layout_target },
       });
       if (liveGate) return liveGate;
 
@@ -1650,6 +1673,74 @@ export function registerPageTools(
       const currentDoc = fs.existsSync(pathInfo.filePath)
         ? safeLoad(fs.readFileSync(pathInfo.filePath, "utf-8")) || {}
         : {};
+      const currentSeo =
+        currentDoc.seo && typeof currentDoc.seo === "object" && !Array.isArray(currentDoc.seo)
+          ? (currentDoc.seo as SeoBlock)
+          : {};
+
+      const expanded = expandSeoClusterToggle({
+        contentType: resolved.contentType,
+        contentRoot: contentPath,
+        updates,
+        currentSeo,
+        slug,
+        locale,
+        site,
+        variant,
+      });
+      if (!expanded.ok) {
+        if (expanded.kind === "action_required") {
+          return actionRequired(
+            {
+              success: false,
+              action_required: expanded.action_required,
+              code: expanded.code,
+              message: expanded.message,
+              ...(expanded.details ?? {}),
+            },
+            expanded.next_actions,
+          );
+        }
+        return fail(expanded.message, { code: expanded.code, ...(expanded.details ?? {}) });
+      }
+      updates = expanded.updates;
+      clusterToggleWarnings.push(...expanded.warnings);
+
+      if (updates.length === 0) {
+        return ok(
+          {
+            message:
+              `No disk write: ${SEO_INCLUDE_IN_CLUSTERING} on with existing cluster membership ` +
+              `(${resolved.contentType}/${slug}). Virtual field is never persisted.`,
+            include_in_clustering: true,
+          },
+          {
+            warnings: [
+              ...clusterToggleWarnings,
+              {
+                code: "seo_include_in_clustering_noop",
+                message:
+                  "seo.include_in_clustering is MCP-only (not written to YAML). Membership already satisfied; no seo.* change.",
+              },
+            ],
+            next_actions: [
+              {
+                tool: "get_entry_seo",
+                priority: "optional",
+                reason: "Confirm include_in_clustering and locale seo:.",
+                args_hint: {
+                  slug,
+                  locale,
+                  contentType: resolved.contentType,
+                  ...(variant ? { variant } : {}),
+                  ...(site ? { site } : {}),
+                },
+              },
+            ],
+          },
+        );
+      }
+
       const catalogGate = formSourceWriteGate(
         collectFormSourceHitsFromUpdates(updates, currentDoc),
         {
@@ -1661,7 +1752,7 @@ export function registerPageTools(
             slug,
             locale,
             contentType: resolved.contentType,
-            updates,
+            updates: inputUpdates,
             confirm_live_edit,
             variant,
             layout_target,
@@ -1725,7 +1816,10 @@ export function registerPageTools(
 
       const results: string[] = [];
       let boundUpdates: unknown;
-      const warnings: McpWarning[] = [...variantWarningsIfNeeded(variant)];
+      const warnings: McpWarning[] = [
+        ...variantWarningsIfNeeded(variant),
+        ...clusterToggleWarnings,
+      ];
       let renameResult: Record<string, unknown> | null = null;
       if (touchesSections) {
         warnings.push({
@@ -2269,6 +2363,7 @@ export function registerPageTools(
     "(original | db_override | ct_override | entry_default). " +
     "Static types: values come from root keys on the layer file (entry_default); leftover field_overrides bags are still applied until migrated. " +
     "DB types: ct_override = field_overrides bag; db_override = overrides.json. " +
+    "Includes MCP-only seo.include_in_clustering (boolean; never YAML) when the type has seo fields — writable only if seo_monitoring.enabled. " +
     "Optional variant reads {variant}.{locale}.yml. Use before update_entry_field / reset_entry_field. Requires content_view.",
     {
       slug: z.string(),
@@ -2310,6 +2405,7 @@ export function registerPageTools(
           [key: string]: unknown;
         };
         let fieldsOut = payload.fields;
+        const typeMonitored = isSeoMonitoringEnabled(resolved.contentType, siteResult.contentPath);
         try {
           const configs = loadContentTypes(siteResult.contentPath);
           const cfg = configs[resolved.contentType];
@@ -2322,9 +2418,11 @@ export function registerPageTools(
                 return {
                   ...f,
                   system_hints: [
-                    "Locale YAML seo: only — never _common.yml, never field_mapping / writeMappedFields.",
+                    "Prefer seo.include_in_clustering (MCP-only boolean) to turn cluster monitoring on/off for this entry.",
+                    "Off expands to seo.pillar_path: null + seo.is_pillar: false. On requires non-empty seo.pillar_path or seo.is_pillar: true after merge.",
+                    "Locale YAML seo: for writes (writeSeoFields). Optional field_mapping seo_main_keyword|seo_pillar_path|seo_is_pillar = DB read baseline; YAML overlay wins. Reset removes YAML key only. Never dotted seo.* in field_mapping; never _common.yml; never writeMappedFields for seo.*.",
                     "Live write patches seo-index.json after disk with the same author. Variants are not indexed.",
-                    "seo.is_pillar auto-fills this page's canonical path. Do not invent pillar_path.",
+                    "seo.is_pillar auto-fills this page's canonical path. Do not invent pillar_path. Empty pillar_path is a cluster gap; null is opt-out.",
                   ],
                 };
               }
@@ -2344,6 +2442,45 @@ export function registerPageTools(
               if (!system_hints) return f;
               return { ...f, system_hints };
             });
+
+            const localeSeo = (() => {
+              if (variant) {
+                const v = loadVariantPage(
+                  resolved.contentType,
+                  slug,
+                  locale,
+                  variant,
+                  siteResult.contentPath,
+                );
+                return v?.data?.seo;
+              }
+              const live = loadPage(resolved.contentType, slug, locale, siteResult.contentPath);
+              return live?.data?.seo;
+            })();
+            const includeInClustering = deriveIncludeInClustering(localeSeo);
+
+            const hasSeoRow = fieldsOut.some((f) => {
+              const n = typeof f.field === "string" ? f.field : typeof f.name === "string" ? f.name : "";
+              return n.startsWith("seo.");
+            });
+            if (hasSeoRow || typeMonitored) {
+              fieldsOut = [
+                {
+                  field: SEO_INCLUDE_IN_CLUSTERING,
+                  effective: includeInClustering,
+                  writable: typeMonitored,
+                  source: "system",
+                  system_hints: [
+                    "MCP-only virtual boolean (mirrors staff Include in SEO clustering). Never written to YAML.",
+                    typeMonitored
+                      ? "Writable via update_fields. false → pillar_path:null + is_pillar:false. true requires pillar_path or is_pillar after merge."
+                      : "Not writable: content type seo_monitoring.enabled is off. Raw seo.* fields still allowed.",
+                    "Does not change content-types.yml seo_monitoring; does not create a YAML key.",
+                  ],
+                },
+                ...fieldsOut,
+              ];
+            }
           }
           const relation_fields = Object.entries(ed || {})
             .filter(([, h]) => h && (h as { type?: string }).type === "relation")

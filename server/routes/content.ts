@@ -241,6 +241,7 @@ import {
   getRawUrlParamValue,
   type UrlParamValueShape,
   resolveStaticEntryUpdatedAt,
+  isKnownSeoFieldPath,
 } from "../content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveAllTemplateVars, buildContentDeliveryParamBag } from "../resolve-template-vars";
@@ -2055,7 +2056,7 @@ export function registerContentRoutes(app: Express): void {
         updateContentTypeConfig(type, update, getContentRoot(res));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("Cannot disable shared layout") || msg.includes("requires _slug")) {
+        if (msg.includes("Cannot disable shared layout") || msg.includes("requires _slug") || msg.includes("Invalid field_mapping key")) {
           res.status(400).json({ error: msg });
           return;
         }
@@ -3894,7 +3895,7 @@ export function registerContentRoutes(app: Express): void {
     }
   });
 
-  /** Reset one field: static deletes layer root key; DB clears CT FO + DB override. */
+  /** Reset one field: static deletes layer root key; DB clears CT FO + DB override; seo.* clears locale seo: key. */
   app.post("/api/content-types/:type/field-reset/:slug", async (req, res) => {
     try {
       const { type, slug } = req.params;
@@ -3917,6 +3918,54 @@ export function registerContentRoutes(app: Express): void {
       const config = getContentTypeConfig(type, ctRoot(res));
       if (!config) {
         res.status(404).json({ error: `Content type "${type}" not found` });
+        return;
+      }
+
+      if (isKnownSeoFieldPath(field) || field === "seo.pillar") {
+        const fieldPath = field === "seo.pillar" ? "seo.pillar_path" : field;
+        let dbItem: Record<string, unknown> | null = null;
+        const dbName = config.database?.slug;
+        if (dbName && getDB(res).exists(dbName)) {
+          const lookupKey = getLookupKey(type, ctRoot(res)) || "slug";
+          const localeKey = getLocaleKey(type, ctRoot(res)) || "locale";
+          const cached = await getDB(res).fetchItems(dbName);
+          const items = cached.items as Record<string, unknown>[];
+          const loc = locale.toLowerCase();
+          dbItem =
+            items.find((i) => {
+              if (String(i[lookupKey] ?? "") !== slug) return false;
+              const fromItem = i[localeKey] ?? i.locale ?? i.lang;
+              return typeof fromItem === "string" && fromItem.trim().toLowerCase() === loc;
+            }) ??
+            items.find((i) => String(i[lookupKey] ?? "") === slug) ??
+            null;
+        }
+        const { resetSeoOverlayField } = await import("../seo-index");
+        const result = resetSeoOverlayField({
+          contentType: type,
+          slug,
+          locale,
+          fieldPath,
+          author,
+          contentRoot: ctRoot(res),
+          variant,
+          dbItem,
+        });
+        if (!result.success) {
+          res.status(result.statusCode || 400).json({
+            error: result.error || "Failed to reset SEO field",
+            noop: result.noop,
+          });
+          return;
+        }
+        res.json({
+          success: true,
+          path: result.relativePath,
+          noop: result.noop,
+          message: result.noop ? result.error : undefined,
+          isVariantLayer: result.isVariantLayer,
+          indexRebuilt: result.indexRebuilt,
+        });
         return;
       }
 

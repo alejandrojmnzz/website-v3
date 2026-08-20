@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowLeft, Bot, BotOff, Brain, Check, ChevronDown, Crosshair, ExternalLink, FileText, Globe, Info, Loader2, Network, Plus, Star, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Crosshair, ExternalLink, FileText, Globe, Info, Loader2, MoreVertical, Network, Plus, Star, Unlink } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,12 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -22,6 +28,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ManagedSeoModal, type ManagedSeoModalTarget } from "@/components/editing/ManagedSeoModal";
+import {
+  SeoContextPickerDialog,
+  resolveSeoContexts,
+  type SeoContextChoice,
+} from "@/components/editing/SeoContextPickerDialog";
+import type { SeoModalTab } from "@/components/DebugBubble/components/SeoModal";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -69,6 +82,42 @@ function clusterCountBadgeClass(count: number): string | undefined {
   return undefined;
 }
 
+type ClusterSortBy = "name" | "page-count";
+type ClusterSortDir = "asc" | "desc";
+
+const CLUSTER_SORT_FIELDS: { value: ClusterSortBy; label: string; defaultDir: ClusterSortDir }[] = [
+  { value: "name", label: "Name", defaultDir: "asc" },
+  { value: "page-count", label: "Page count", defaultDir: "desc" },
+];
+
+function ClusterSortIcon({
+  field,
+  sortBy,
+  sortDir,
+}: {
+  field: ClusterSortBy;
+  sortBy: ClusterSortBy;
+  sortDir: ClusterSortDir;
+}) {
+  if (field !== sortBy) return <ArrowUpDown className="inline ml-1 opacity-40" size={12} />;
+  return sortDir === "asc" ? (
+    <ArrowUp className="inline ml-1" size={12} />
+  ) : (
+    <ArrowDown className="inline ml-1" size={12} />
+  );
+}
+
+function compareClustersByName(
+  a: { keyword?: string | null; pillarUrl: string },
+  b: { keyword?: string | null; pillarUrl: string },
+): number {
+  return clusterListLabel(a.keyword, a.pillarUrl).localeCompare(
+    clusterListLabel(b.keyword, b.pillarUrl),
+    undefined,
+    { sensitivity: "base" },
+  );
+}
+
 function ClusterMapHelp() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   return (
@@ -76,7 +125,10 @@ function ClusterMapHelp() {
       <p className="text-xs text-muted-foreground leading-relaxed">
         Clusters group a hub page and its supporting pages. Stats below cover content types with{" "}
         <strong className="font-medium text-foreground">SEO monitoring</strong> enabled in content-type
-        settings. Assign members via <code className="font-mono text-[10px]">seo.pillar_path</code> on locale YAML.
+        settings. <strong className="font-medium text-foreground">Unclustered</strong> is the setup gap
+        (including pages with no SEO yet). Opt out with{" "}
+        <code className="font-mono text-[10px]">seo.pillar_path: null</code>. Assign members via{" "}
+        <code className="font-mono text-[10px]">seo.pillar_path</code> on locale YAML.
       </p>
       <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
         <CollapsibleTrigger asChild>
@@ -210,30 +262,148 @@ type SeoIndexWarningRow = {
   message?: string;
 };
 
+const SEO_INDEX_WARNING_HELP: Record<string, { title: string; body: string }> = {
+  duplicate_pillar: {
+    title: "Duplicate hub path",
+    body: "Two pages are marked as pillars for the same URL. Only one hub can own a path — fix is_pillar / pillar_path so hubs do not collide.",
+  },
+  pillar_not_live: {
+    title: "Pillar path not live",
+    body: "This page points at a pillar_path that does not resolve to a live canonical URL in the content index. Fix the path or publish the hub.",
+  },
+  seo_on_common: {
+    title: "SEO on _common.yml",
+    body: "seo.* must live on the locale YAML (en.yml / es.yml), not _common.yml. Move or remove the seo: block from _common.yml.",
+  },
+};
+
+type StatHelp = { title: string; body: string };
+
+const CLUSTER_STAT_HELP = {
+  unclustered: {
+    title: "Unclustered",
+    body: "These pages still need cluster setup. That includes pages with no SEO block yet, and pages that have neither a hub nor a main keyword. Intentional opt-outs (pillar_path: null) are not counted here.",
+  },
+  partiallySet: {
+    title: "Partially set",
+    body: "These pages have a main keyword, but they are not linked to a hub page yet. They are halfway set up.",
+  },
+  brokenRefs: {
+    title: "Broken refs",
+    body: "These pages point to a hub that does not exist or is not marked as a hub. The link needs to be fixed.",
+  },
+  emptyHubs: {
+    title: "Empty hubs",
+    body: "These are hub pages with no pages linked to them yet. A hub should gather related pages under one topic.",
+  },
+  clustered: {
+    title: "Clustered",
+    body: "These pages are linked to a hub page and belong to a topic group. This is the healthy state.",
+  },
+} as const satisfies Record<string, StatHelp>;
+
+const GSC_STAT_HELP = {
+  inSitemap: {
+    title: "In sitemap",
+    body: "How many pages are listed in your sitemap so Google can find them.",
+  },
+  inspected: {
+    title: "Inspected",
+    body: "How many of those pages we have already checked with Google Search Console.",
+  },
+  indexed: {
+    title: "Indexed",
+    body: "Google has these pages in its search results. People can find them on Google.",
+  },
+  notIndexed: {
+    title: "Not indexed",
+    body: "We checked these pages, but Google is not showing them in search yet. They may need a fix.",
+  },
+  errors: {
+    title: "Errors",
+    body: "Checks that failed — for example a connection problem or Google could not inspect the page.",
+  },
+  neverChecked: {
+    title: "Never checked",
+    body: "Pages in the sitemap that we have not asked Google about yet.",
+  },
+} as const satisfies Record<string, StatHelp>;
+
+function StatHelpBadge({
+  label,
+  count,
+  help,
+  variant,
+  testId,
+}: {
+  label: string;
+  count: number;
+  help: StatHelp;
+  variant: "secondary" | "destructive" | "outline";
+  testId?: string;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Badge
+          variant={variant}
+          className="tabular-nums cursor-pointer"
+          data-testid={testId}
+          role="button"
+          tabIndex={0}
+          aria-label={`${label} ${count}. Click for explanation.`}
+        >
+          {label} {count}
+        </Badge>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64 space-y-1.5 p-3">
+        <p className="text-sm font-medium text-foreground">{help.title}</p>
+        <p className="text-sm text-muted-foreground leading-snug">{help.body}</p>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function ClusterHealthPanel({ health }: { health: ClusterHealth }) {
   const { stats } = health;
   return (
     <div className="mb-4 space-y-3" data-testid="cluster-health-stats">
       <div className="flex flex-wrap gap-2">
-        <Badge variant="secondary" className="tabular-nums" data-testid="stat-unclustered">
-          Unclustered {stats.unclustered}
-        </Badge>
-        <Badge variant="secondary" className="tabular-nums" data-testid="stat-partially-set">
-          Partially set {stats.partiallySet}
-        </Badge>
-        <Badge
+        <StatHelpBadge
+          label="Unclustered"
+          count={stats.unclustered}
+          help={CLUSTER_STAT_HELP.unclustered}
+          variant="secondary"
+          testId="stat-unclustered"
+        />
+        <StatHelpBadge
+          label="Partially set"
+          count={stats.partiallySet}
+          help={CLUSTER_STAT_HELP.partiallySet}
+          variant="secondary"
+          testId="stat-partially-set"
+        />
+        <StatHelpBadge
+          label="Broken refs"
+          count={stats.brokenRefs}
+          help={CLUSTER_STAT_HELP.brokenRefs}
           variant={stats.brokenRefs > 0 ? "destructive" : "secondary"}
-          className="tabular-nums"
-          data-testid="stat-broken-refs"
-        >
-          Broken refs {stats.brokenRefs}
-        </Badge>
-        <Badge variant="outline" className="tabular-nums" data-testid="stat-empty-hubs">
-          Empty hubs {health.emptyHubCount}
-        </Badge>
-        <Badge variant="outline" className="tabular-nums" data-testid="stat-clustered">
-          Clustered {stats.clustered}
-        </Badge>
+          testId="stat-broken-refs"
+        />
+        <StatHelpBadge
+          label="Empty hubs"
+          count={health.emptyHubCount}
+          help={CLUSTER_STAT_HELP.emptyHubs}
+          variant="outline"
+          testId="stat-empty-hubs"
+        />
+        <StatHelpBadge
+          label="Clustered"
+          count={stats.clustered}
+          help={CLUSTER_STAT_HELP.clustered}
+          variant="outline"
+          testId="stat-clustered"
+        />
       </div>
       {Object.keys(health.byContentType).length > 0 ? (
         <div className="overflow-x-auto">
@@ -310,25 +480,99 @@ function BrokenClusterRefsPanel({
   );
 }
 
-function IndexWarningsPanel({ warnings }: { warnings: SeoIndexWarningRow[] }) {
+function parseSeoIndexEntryId(
+  entry: string | undefined,
+): { contentType: string; slug: string; locale: string } | null {
+  if (!entry) return null;
+  const parts = entry.split("/").filter(Boolean);
+  if (parts.length < 3) return null;
+  const locale = parts[parts.length - 1]!;
+  const slug = parts[parts.length - 2]!;
+  const contentType = parts.slice(0, -2).join("/");
+  if (!contentType || !slug || !locale) return null;
+  return { contentType, slug, locale };
+}
+
+function IndexWarningsPanel({
+  warnings,
+  onOpenSiteMeta,
+}: {
+  warnings: SeoIndexWarningRow[];
+  onOpenSiteMeta: (target: { contentType: string; slug: string; locale: string }) => void;
+}) {
   const [open, setOpen] = useState(false);
   if (!warnings.length) return null;
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="mb-4">
       <CollapsibleTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 text-xs w-full justify-between" data-testid="button-index-warnings">
-          Index warnings
-          <Badge variant="secondary">{warnings.length}</Badge>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-auto min-h-8 py-1.5 text-xs w-full justify-between gap-2 whitespace-normal text-left"
+          data-testid="button-index-warnings"
+        >
+          <span>Configuration issues in the site’s internal SEO index</span>
+          <Badge variant="secondary" className="shrink-0">
+            {warnings.length}
+          </Badge>
         </Button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="pt-2 space-y-1.5" data-testid="index-warnings-list">
-        {warnings.map((w, i) => (
-          <p key={`${w.code}-${w.entry ?? i}`} className="text-[11px] text-muted-foreground">
-            <span className="font-mono text-foreground">{w.code}</span>
-            {w.entry ? ` · ${w.entry}` : ""}
-            {w.message ? ` — ${w.message}` : ""}
-          </p>
-        ))}
+      <CollapsibleContent className="pt-2 space-y-2" data-testid="index-warnings-list">
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          These are setup problems in the CMS cluster graph (
+          <code className="font-mono text-[10px]">seo-index.json</code>
+          ), not Google Search Console indexing. Fix the YAML (or content-type SEO fields) for each
+          entry below.
+        </p>
+        <ul className="space-y-2">
+          {warnings.map((w, i) => {
+            const help = SEO_INDEX_WARNING_HELP[w.code];
+            const target = parseSeoIndexEntryId(w.entry);
+            return (
+              <li
+                key={`${w.code}-${w.entry ?? i}`}
+                className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="text-[11px] font-medium text-foreground">
+                      {help?.title ?? w.code}
+                      {w.entry ? (
+                        <span className="font-normal text-muted-foreground"> · {w.entry}</span>
+                      ) : null}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground leading-snug">
+                      {help?.body ?? "Unrecognized SEO-index warning — check the entry’s seo.* fields."}
+                      {w.message ? ` ${w.message}` : ""}
+                      {w.pillar_path ? (
+                        <>
+                          {" "}
+                          Path: <code className="font-mono text-[10px]">{w.pillar_path}</code>
+                        </>
+                      ) : null}
+                    </p>
+                    {help ? (
+                      <p className="text-[10px] font-mono text-muted-foreground/80">{w.code}</p>
+                    ) : null}
+                  </div>
+                  {target ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 shrink-0 gap-1 px-2 text-[10px]"
+                      data-testid={`button-open-site-meta-${w.code}-${target.slug}-${target.locale}`}
+                      onClick={() => onOpenSiteMeta(target)}
+                    >
+                      Open site meta to fix it
+                      <ArrowRight className="!size-3" aria-hidden />
+                    </Button>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       </CollapsibleContent>
     </Collapsible>
   );
@@ -879,15 +1123,29 @@ function ClusterMemberRow({
               ) : null}
             </button>
           </PopoverTrigger>
-          <button
-            type="button"
-            className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-opacity"
-            aria-label="Remove from cluster"
-            data-testid={`button-cluster-remove-${member.slug}`}
-            onClick={() => setRemoveOpen(true)}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 hover:bg-muted text-muted-foreground transition-opacity"
+                aria-label="Cluster member actions"
+                data-testid={`button-cluster-actions-${member.slug}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MoreVertical className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                data-testid={`button-cluster-remove-${member.slug}`}
+                onSelect={() => setRemoveOpen(true)}
+              >
+                <Unlink className="h-3.5 w-3.5 text-destructive" />
+                Remove from cluster
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <PopoverContent
           align="start"
@@ -1485,12 +1743,48 @@ function SearchConsoleCoverageCard({
         {configured !== false && summary ? (
           <>
             <div className="flex flex-wrap gap-2 text-xs" data-testid="gsc-funnel">
-              <Badge variant="secondary">In sitemap {summary.sitemapCount}</Badge>
-              <Badge variant="secondary">Inspected {summary.inspected}</Badge>
-              <Badge variant="secondary">Indexed {summary.indexed}</Badge>
-              <Badge variant="secondary">Not indexed {summary.notIndexed}</Badge>
-              <Badge variant="secondary">Errors {summary.errors}</Badge>
-              <Badge variant="outline">Never checked {summary.neverChecked}</Badge>
+              <StatHelpBadge
+                label="In sitemap"
+                count={summary.sitemapCount}
+                help={GSC_STAT_HELP.inSitemap}
+                variant="secondary"
+                testId="stat-gsc-in-sitemap"
+              />
+              <StatHelpBadge
+                label="Inspected"
+                count={summary.inspected}
+                help={GSC_STAT_HELP.inspected}
+                variant="secondary"
+                testId="stat-gsc-inspected"
+              />
+              <StatHelpBadge
+                label="Indexed"
+                count={summary.indexed}
+                help={GSC_STAT_HELP.indexed}
+                variant="secondary"
+                testId="stat-gsc-indexed"
+              />
+              <StatHelpBadge
+                label="Not indexed"
+                count={summary.notIndexed}
+                help={GSC_STAT_HELP.notIndexed}
+                variant="secondary"
+                testId="stat-gsc-not-indexed"
+              />
+              <StatHelpBadge
+                label="Errors"
+                count={summary.errors}
+                help={GSC_STAT_HELP.errors}
+                variant="secondary"
+                testId="stat-gsc-errors"
+              />
+              <StatHelpBadge
+                label="Never checked"
+                count={summary.neverChecked}
+                help={GSC_STAT_HELP.neverChecked}
+                variant="outline"
+                testId="stat-gsc-never-checked"
+              />
             </div>
             {types.length > 0 && (
               <div className="overflow-x-auto">
@@ -1645,6 +1939,18 @@ function SearchConsoleCoverageCard({
 }
 
 export function SeoTab({ data }: { data: SeoOverview }) {
+  const { toast } = useToast();
+  const [clusterSortBy, setClusterSortBy] = useState<ClusterSortBy>("name");
+  const [clusterSortDir, setClusterSortDir] = useState<ClusterSortDir>("asc");
+  const [seoModalOpen, setSeoModalOpen] = useState(false);
+  const [seoModalTarget, setSeoModalTarget] = useState<ManagedSeoModalTarget | null>(null);
+  const [seoPickerOpen, setSeoPickerOpen] = useState(false);
+  const [seoPickerPending, setSeoPickerPending] = useState<{
+    contentType: string;
+    slug: string;
+    locale: string;
+    initialTab?: SeoModalTab;
+  } | null>(null);
   const contentTypes = Object.keys(data.intentDistribution);
   const { data: gsc } = useQuery<GscInspectionGetResponse>({
     queryKey: ["/api/debug/gsc-inspection"],
@@ -1663,6 +1969,51 @@ export function SeoTab({ data }: { data: SeoOverview }) {
   const summary = gsc?.summary;
   const withKeyword = data.totals.withKeyword ?? 0;
   const keywordedNotClustered = Math.max(0, withKeyword - data.totals.withPillar);
+  const sortedClusters = [...data.clusters].sort((a, b) => {
+    let cmp = 0;
+    if (clusterSortBy === "page-count") {
+      cmp = a.clusterCount - b.clusterCount;
+      if (cmp === 0) cmp = compareClustersByName(a, b);
+    } else {
+      cmp = compareClustersByName(a, b);
+    }
+    return clusterSortDir === "asc" ? cmp : -cmp;
+  });
+
+  const beginEditSeo = useCallback(
+    async (
+      contentType: string,
+      slug: string,
+      locale: string,
+      initialTab: SeoModalTab = "general",
+    ) => {
+      try {
+        const contexts = await resolveSeoContexts(contentType, slug, locale);
+        if (contexts.contexts.length <= 1) {
+          const choice: SeoContextChoice =
+            contexts.default ?? contexts.contexts[0] ?? { type: "live" };
+          setSeoModalTarget({
+            contentType,
+            slug,
+            locale,
+            initialTab,
+            variant: choice.type === "variant" ? choice.variant : undefined,
+          });
+          setSeoModalOpen(true);
+          return;
+        }
+        setSeoPickerPending({ contentType, slug, locale, initialTab });
+        setSeoPickerOpen(true);
+      } catch (e) {
+        toast({
+          title: "Failed to load SEO contexts",
+          description: e instanceof Error ? e.message : "Could not list LIVE/variant contexts.",
+          variant: "destructive",
+        });
+      }
+    },
+    [toast],
+  );
 
   return (
     <div className="space-y-6">
@@ -1761,7 +2112,12 @@ export function SeoTab({ data }: { data: SeoOverview }) {
           {data.brokenClusterRefs && data.brokenClusterRefs.length > 0 ? (
             <BrokenClusterRefsPanel refs={data.brokenClusterRefs} clusters={data.clusters} />
           ) : null}
-          <IndexWarningsPanel warnings={data.indexWarnings ?? []} />
+          <IndexWarningsPanel
+            warnings={data.indexWarnings ?? []}
+            onOpenSiteMeta={({ contentType, slug, locale }) => {
+              void beginEditSeo(contentType, slug, locale, "general");
+            }}
+          />
           {data.clusters.length === 0 ? (
             <div className="text-center py-8" data-testid="clusters-empty">
               <Network className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
@@ -1772,17 +2128,49 @@ export function SeoTab({ data }: { data: SeoOverview }) {
               </p>
             </div>
           ) : (
-            <Accordion type="multiple">
-              {[...data.clusters]
-                .sort((a, b) => {
-                  if (a.clusterCount === 0 && b.clusterCount !== 0) return -1;
-                  if (b.clusterCount === 0 && a.clusterCount !== 0) return 1;
-                  return clusterListLabel(a.keyword, a.pillarUrl).localeCompare(
-                    clusterListLabel(b.keyword, b.pillarUrl),
-                    undefined,
-                    { sensitivity: "base" },
+            <>
+            <div
+              className="flex items-center justify-end mb-2"
+              data-testid="cluster-sort-bar"
+            >
+              <div className="inline-flex rounded-md border border-border overflow-hidden">
+                {CLUSTER_SORT_FIELDS.map((field, index) => {
+                  const active = field.value === clusterSortBy;
+                  return (
+                    <button
+                      key={field.value}
+                      type="button"
+                      className={cn(
+                        "inline-flex items-center h-7 px-2.5 text-xs transition-colors",
+                        index > 0 && "border-l border-border",
+                        active
+                          ? "bg-muted text-foreground font-medium"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/40",
+                      )}
+                      aria-pressed={active}
+                      data-testid={`sort-cluster-${field.value}`}
+                      onClick={() => {
+                        if (active) {
+                          setClusterSortDir((dir) => (dir === "asc" ? "desc" : "asc"));
+                        } else {
+                          setClusterSortBy(field.value);
+                          setClusterSortDir(field.defaultDir);
+                        }
+                      }}
+                    >
+                      {field.label}
+                      <ClusterSortIcon
+                        field={field.value}
+                        sortBy={clusterSortBy}
+                        sortDir={clusterSortDir}
+                      />
+                    </button>
                   );
-                })
+                })}
+              </div>
+            </div>
+            <Accordion type="multiple">
+              {sortedClusters
                 .map((cluster) => {
                   const hubId = cluster.hubId || cluster.pillarUrl;
                   const hubLocale = cluster.locale || "en";
@@ -1864,6 +2252,7 @@ export function SeoTab({ data }: { data: SeoOverview }) {
                   );
                 })}
             </Accordion>
+            </>
           )}
         </CardContent>
       </Card>
@@ -2033,6 +2422,43 @@ export function GeoTab({ data, brand }: { data: SeoOverview; brand: BrandContext
           </CardContent>
         </Card>
       </div>
+
+      <ManagedSeoModal
+        open={seoModalOpen}
+        onOpenChange={(open) => {
+          setSeoModalOpen(open);
+          if (!open) setSeoModalTarget(null);
+        }}
+        target={seoModalTarget}
+        onSaved={() => {
+          invalidateClusterQueries();
+        }}
+      />
+
+      {seoPickerPending ? (
+        <SeoContextPickerDialog
+          open={seoPickerOpen}
+          onOpenChange={(open) => {
+            setSeoPickerOpen(open);
+            if (!open) setSeoPickerPending(null);
+          }}
+          contentType={seoPickerPending.contentType}
+          slug={seoPickerPending.slug}
+          locale={seoPickerPending.locale}
+          onConfirm={(choice) => {
+            setSeoModalTarget({
+              contentType: seoPickerPending.contentType,
+              slug: seoPickerPending.slug,
+              locale: seoPickerPending.locale,
+              initialTab: seoPickerPending.initialTab,
+              variant: choice.type === "variant" ? choice.variant : undefined,
+            });
+            setSeoPickerOpen(false);
+            setSeoPickerPending(null);
+            setSeoModalOpen(true);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -20,13 +20,14 @@ import {
   startDiagnosticsJob,
   type DiagnosticsJobRecord,
 } from "../services/diagnosticsJobService";
-import { entryKeyFromContentFile } from "../../scripts/validation/shared/entryKey";
+import { entryKeyFromContentFile, buildEntryKey } from "../../scripts/validation/shared/entryKey";
 import {
   isEntryLocalValidator,
   ENTRY_LOCAL_VALIDATOR_NAMES,
 } from "../../scripts/validation/shared/runClass";
 import type { ValidationScope } from "../../scripts/validation/shared/runClass";
 import { validators as allPageValidators } from "../../scripts/validation/validators";
+import { getVersioningManager } from "../versioning";
 import { countDatabaseCacheErrors } from "../../scripts/validation/shared/databaseHealthChecks";
 import {
   isNonLocalFilesystemSrc,
@@ -179,10 +180,26 @@ export function registerValidationRoutes(app: Express): void {
   // Run entry-local validators for a single page — merge into unified store
   app.post("/api/validation/run-page", async (req, res) => {
     try {
-      const { url, validators: validatorNames } = req.body;
+      const { url, validators: validatorNames, variant: bodyVariant } = req.body;
 
       if (!url || typeof url !== "string") {
         return res.status(400).json({ error: "Missing or invalid 'url' field" });
+      }
+
+      let variant: string | null =
+        typeof bodyVariant === "string" && bodyVariant.trim()
+          ? bodyVariant.trim()
+          : null;
+      if (!variant) {
+        try {
+          const u = new URL(url, "http://local");
+          variant =
+            u.searchParams.get("variant") ||
+            u.searchParams.get("force_variant") ||
+            null;
+        } catch {
+          /* path-only url */
+        }
       }
 
       const service = new ValidationService();
@@ -195,7 +212,23 @@ export function registerValidationRoutes(app: Express): void {
 
       const allContentFiles = context.contentFiles;
       const parsed = getCI(res).parseContentUrl(url);
-      const filteredFiles = matchContentFilesForUrl(allContentFiles, url, parsed);
+      const filteredFiles = matchContentFilesForUrl(
+        allContentFiles,
+        url,
+        parsed,
+        variant,
+      );
+
+      if (variant && filteredFiles.length === 0) {
+        return res.json({
+          skipped: true,
+          reason: "unpublished_variant",
+          message:
+            "This variant isn’t published (0% traffic). Diagnostics run after you assign traffic.",
+          validators: [],
+          summary: { passed: 0, failed: 0, warnings: 0 },
+        });
+      }
 
       context.contentFiles = filteredFiles;
 
@@ -229,7 +262,9 @@ export function registerValidationRoutes(app: Express): void {
         const cache = getValidationCache(res);
         const entryKeys = filteredFiles.map((f) => entryKeyFromContentFile(f));
         for (const file of filteredFiles) {
-          cache.registerUrl(getCanonicalUrl(file), entryKeyFromContentFile(file));
+          if (!file.variant) {
+            cache.registerUrl(getCanonicalUrl(file), entryKeyFromContentFile(file));
+          }
         }
         cache.applyValidatorResults(result.validators, {
           contentFiles: allContentFiles,
@@ -786,6 +821,23 @@ export function registerValidationRoutes(app: Express): void {
         return;
       }
 
+      const variantParam =
+        (typeof req.query.variant === "string" && req.query.variant) ||
+        (typeof req.query.force_variant === "string" && req.query.force_variant) ||
+        null;
+      let variant = variantParam;
+      if (!variant) {
+        try {
+          const u = new URL(url, "http://local");
+          variant =
+            u.searchParams.get("variant") ||
+            u.searchParams.get("force_variant") ||
+            null;
+        } catch {
+          /* path-only */
+        }
+      }
+
       const service = new ValidationService();
       const context = await ensureSiteContext(service, res);
 
@@ -794,10 +846,94 @@ export function registerValidationRoutes(app: Express): void {
         context.contentFiles,
         url,
         parsed,
+        variant,
       );
       const urlLocale =
         parsed?.locale ||
         (url.startsWith("/es/") ? "es" : url.startsWith("/en/") ? "en" : null);
+
+      // Unpublished / missing published-variant row
+      if (variant && matchingFiles.length === 0) {
+        const contentType = parsed?.contentType ?? null;
+        const slug = parsed?.slug ?? null;
+        const locale = urlLocale || parsed?.locale || "en";
+        let allocation = 0;
+        let draftOnly = false;
+        if (contentType && slug) {
+          const versioningManager =
+            (res.locals.site as any)?.versioningManager ?? getVersioningManager();
+          const ver = versioningManager.getVersioningForContent(contentType, slug) || {};
+          const locVariants = ver[locale]?.variants ?? [];
+          const row = locVariants.find((v: { slug: string }) => v.slug === variant);
+          allocation = row?.allocation ?? 0;
+          const liveFiles = matchContentFilesForUrl(
+            context.contentFiles,
+            url,
+            parsed,
+            null,
+          );
+          draftOnly = liveFiles.every((f) => f.isDraft) && liveFiles.length > 0;
+          if (!row && liveFiles.length === 0) {
+            // still resolve draft-only from any matching slug files
+            const any = context.contentFiles.filter(
+              (f) => f.type === contentType && f.slug === slug,
+            );
+            draftOnly = any.length > 0 && any.every((f) => f.isDraft || f.variant);
+          }
+        }
+        const entryKey =
+          contentType && slug
+            ? buildEntryKey(contentType, slug, locale, variant)
+            : undefined;
+        res.json({
+          url,
+          contentType: contentType || "unknown",
+          slug: slug || "unknown",
+          locale,
+          variant,
+          allocation,
+          entryKey,
+          filePath: "",
+          title: slug || url,
+          validationSkippedReason: "unpublished_variant",
+          cached: null,
+          dirty: false,
+          schemaValidation: { valid: true, errors: [] },
+          meta: {
+            page_title: null,
+            titleLength: 0,
+            description: null,
+            descriptionLength: 0,
+            og_image: null,
+            canonical_url: null,
+            robots: null,
+          },
+          schema: {
+            configured: false,
+            includes: [],
+            sources: [],
+            renderedJsonLd: [],
+            htmlPreview: "",
+          },
+          sections: { count: 0, types: [], hasFaq: false },
+          images: {
+            referencedIds: [],
+            missingFromRegistry: [],
+            missingFromDisk: [],
+          },
+          translations: { locale, availableLocales: [locale], counterpartUrl: null },
+          redirects: { incomingRedirects: [] },
+          emptyFields: [],
+          issues: [],
+          education: {
+            summary: draftOnly
+              ? "This variant isn’t published (0% traffic). Diagnostics run after you assign traffic. Redirects stay on the live locale file only. For unpublished entries, use Global Diagnostics or open preview without ?force_variant."
+              : "This variant isn’t published (0% traffic). Diagnostics run after you assign traffic. Redirects stay on the live locale file only.",
+          },
+        });
+        return;
+      }
+
       const file =
         (urlLocale && matchingFiles.find((f: any) => f.locale === urlLocale)) ||
         matchingFiles.find((f: any) => f.locale !== "_common") ||
@@ -807,6 +943,19 @@ export function registerValidationRoutes(app: Express): void {
       if (!file) {
         res.status(404).json({ error: `No content found for URL: ${url}` });
         return;
+      }
+
+      let allocationPct: number | undefined;
+      if (file.variant) {
+        const versioningManager =
+          (res.locals.site as any)?.versioningManager ?? getVersioningManager();
+        const ver =
+          versioningManager.getVersioningForContent(file.type, file.slug) || {};
+        const locVariants = ver[file.locale]?.variants ?? [];
+        const row = locVariants.find(
+          (v: { slug: string }) => v.slug === file.variant,
+        );
+        allocationPct = row?.allocation ?? undefined;
       }
 
       let rawData: Record<string, unknown> = {};
@@ -855,7 +1004,9 @@ export function registerValidationRoutes(app: Express): void {
           const result = getCI(res).loadContent({
             contentType: file.type,
             slug: folderSlug,
-            localeOrVariant: inferredLocale,
+            localeOrVariant: file.variant
+              ? `${file.variant}.${inferredLocale}`
+              : inferredLocale,
           });
           if (!result.success) {
             schemaValidation.valid = false;
@@ -968,14 +1119,15 @@ export function registerValidationRoutes(app: Express): void {
         (f: any) =>
           f.slug === file.slug &&
           f.type === file.type &&
-          f.locale !== file.locale,
+          f.locale !== file.locale &&
+          !f.variant,
       );
       const counterpartUrl = counterpartFile
         ? getCanonicalUrl(counterpartFile)
         : null;
 
       const incomingRedirects: string[] = [];
-      if (context.redirectMap && context.redirectMap.size > 0) {
+      if (!file.variant && context.redirectMap && context.redirectMap.size > 0) {
         context.redirectMap.forEach((entry: any, from: string) => {
           if (entry.to === url) {
             incomingRedirects.push(from);
@@ -1016,7 +1168,9 @@ export function registerValidationRoutes(app: Express): void {
       const meta = file.meta || {};
       const cache = getValidationCache(res);
       const entryKey = entryKeyFromContentFile(file);
-      cache.registerUrl(url, entryKey);
+      if (!file.variant) {
+        cache.registerUrl(url, entryKey);
+      }
 
       const storedIssues = cache.getIssuesByEntryKey(entryKey);
       const runMeta = cache.getRunMetaForEntry(entryKey);
@@ -1031,13 +1185,17 @@ export function registerValidationRoutes(app: Express): void {
         validationCacheBuiltAt: s.lastRunAt,
       }));
 
-      const cachedEntry = cache.getByUrl(url) ?? cache.getByEntryKey(entryKey) ?? null;
+      const cachedEntry = file.variant
+        ? cache.getByEntryKey(entryKey) ?? null
+        : cache.getByUrl(url) ?? cache.getByEntryKey(entryKey) ?? null;
 
       res.json({
         url,
         contentType: file.type,
         slug: file.slug,
         locale: file.locale,
+        variant: file.variant || null,
+        allocation: allocationPct,
         entryKey,
         filePath: file.filePath,
         title: file.title,
@@ -1111,8 +1269,9 @@ export function registerValidationRoutes(app: Express): void {
         issues,
 
         education: {
-          summary:
-            "Validation uses one shared store. This page shows issues that target this entry (including redirects/media that touch it). Saving re-checks local rules; redirect conflicts refresh when redirect config changes or you run Redirects/Global Health.",
+          summary: file.variant
+            ? `Validation for published variant “${file.variant}” (own issue bucket). Redirects stay on the live locale file only.`
+            : "Validation uses one shared store. This page shows issues that target this entry (including redirects/media that touch it). Saving re-checks local rules; redirect conflicts refresh when redirect config changes or you run Redirects/Global Health.",
         },
       });
     } catch (error) {

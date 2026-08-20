@@ -427,14 +427,48 @@ export const UPDATED_AT_ALIAS_FIELD = "updated_at";
 export const RESERVED_PUBLISHED_AT_FIELD = "published_at";
 
 /**
- * Platform SEO strategy fields — nested under locale YAML `seo:`, not field_mapping.
- * Templates: {{ seo.main_keyword }} etc.
+ * Platform SEO strategy fields — nested under locale YAML `seo:` for templates/edits
+ * (`{{ seo.main_keyword }}`, writeSeoFields). DB-backed types may also map baselines via
+ * {@link SEO_FIELD_MAPPING_KEYS} in field_mapping; locale YAML overlay wins per key.
  */
 export const KNOWN_SEO_FIELDS = ["main_keyword", "pillar_path", "is_pillar"] as const;
 export type KnownSeoField = (typeof KNOWN_SEO_FIELDS)[number];
 export const SEO_YAML_KEY = "seo";
 export const LEGACY_SEO_PILLAR_KEY = "pillar";
 export const LEGACY_MAIN_SEO_KEYWORD_KEY = "main_seo_keyword";
+
+/** field_mapping keys that read DB columns into the effective seo: baseline (not dotted seo.*). */
+export const SEO_FIELD_MAPPING_KEYS = {
+  main_keyword: "seo_main_keyword",
+  pillar_path: "seo_pillar_path",
+  is_pillar: "seo_is_pillar",
+} as const;
+
+export const SEO_DB_MAPPING_KEY_LIST = [
+  SEO_FIELD_MAPPING_KEYS.main_keyword,
+  SEO_FIELD_MAPPING_KEYS.pillar_path,
+  SEO_FIELD_MAPPING_KEYS.is_pillar,
+] as const;
+
+export type SeoDbMappingKey = (typeof SEO_DB_MAPPING_KEY_LIST)[number];
+
+export function isSeoDbMappingKey(key: string): boolean {
+  return (SEO_DB_MAPPING_KEY_LIST as readonly string[]).includes(key);
+}
+
+/** Dotted keys must never appear in field_mapping (would break writeMappedFields). */
+export function isForbiddenDottedSeoFieldMappingKey(key: string): boolean {
+  if (key === `${SEO_YAML_KEY}.${LEGACY_SEO_PILLAR_KEY}`) return true;
+  return (KNOWN_SEO_FIELDS as readonly string[]).some((k) => key === `${SEO_YAML_KEY}.${k}`);
+}
+
+export function assertNoDottedSeoFieldMappingKeys(fieldMapping: Record<string, unknown>): void {
+  const bad = Object.keys(fieldMapping).filter(isForbiddenDottedSeoFieldMappingKey);
+  if (bad.length === 0) return;
+  throw new Error(
+    `Invalid field_mapping key(s): ${bad.join(", ")}. Use ${SEO_DB_MAPPING_KEY_LIST.join(", ")} to map DB columns into the seo: baseline — never dotted seo.* keys.`,
+  );
+}
 
 export function isKnownSeoFieldPath(fieldPath: string): boolean {
   return (KNOWN_SEO_FIELDS as readonly string[]).some((k) => fieldPath === `${SEO_YAML_KEY}.${k}`);
@@ -483,6 +517,8 @@ export function normalizeContentTypeFieldConfig(
   unique_fields?: string[];
 } {
   const next: FieldMappingRecord = { ...(fieldMapping || {}) };
+
+  assertNoDottedSeoFieldMappingKeys(next as Record<string, unknown>);
 
   // Migrate reserved plain image → _image
   if ("image" in next) {

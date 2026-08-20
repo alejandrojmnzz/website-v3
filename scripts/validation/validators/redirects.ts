@@ -14,11 +14,17 @@ import * as path from "path";
 import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue, RedirectEntry } from "../shared/types";
 import { normalizeUrl, getCanonicalUrl } from "../shared/canonicalUrls";
+import { isLiveRedirectSource } from "../shared/draftFiles";
+import { formatSitePath } from "../../../shared/formatSitePath";
 
 interface CustomRedirectEntry {
   from: string;
   to: string;
   status?: number;
+}
+
+function formatRedirectSourceLabel(filePath: string): string {
+  return `${formatSitePath(filePath)} (live)`;
 }
 
 function isRegexPattern(p: string): boolean {
@@ -73,11 +79,14 @@ export const redirectValidator: Validator = {
     }
 
     for (const file of context.contentFiles) {
+      if (!isLiveRedirectSource(file)) continue;
+
       const redirects = file.meta?.redirects || [];
       if (redirects.length === 0) continue;
 
       const isCommon = file.locale === "_common";
       const targetUrl = getCanonicalUrl(file);
+      const fileLabel = formatRedirectSourceLabel(file.filePath);
 
       for (const redirect of redirects) {
         const normalizedRedirect = normalizeUrl(redirect);
@@ -105,18 +114,19 @@ export const redirectValidator: Validator = {
           }
 
           const bothFromSameContent = isCommon || existing.source.locale === "_common";
+          const existingLabel = formatRedirectSourceLabel(existing.source.filePath);
 
           if (!bothFromSameContent) {
             errors.push({
               type: "error",
               code: "REDIRECT_CONFLICT",
-              message: `Redirect conflict: "${normalizedRedirect}" is claimed by both "${file.filePath}" and "${existing.source.filePath}"`,
+              message: `Redirect conflict: "${normalizedRedirect}" is claimed by both "${fileLabel}" and "${existingLabel}"`,
               file: file.filePath,
               suggestion: "Remove one of the conflicting redirects",
             });
           } else {
-            const commonPath = isCommon ? file.filePath : existing.source.filePath;
-            const localePath = isCommon ? existing.source.filePath : file.filePath;
+            const commonPath = isCommon ? fileLabel : existingLabel;
+            const localePath = isCommon ? existingLabel : fileLabel;
             warnings.push({
               type: "warning",
               code: "REDIRECT_OVERLAP",

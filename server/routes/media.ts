@@ -93,6 +93,7 @@ import {
 } from "../versioning";
 import { mediaGallery, MediaGallery } from "../media-gallery";
 import { getMergedImageRegistry } from "../image-registry-resolver";
+import { buildVisitorImageRegistrySubset } from "../image-registry-subset";
 import { applyTagsToRegistry } from "../image-auto-tagger";
 import { media } from "../media";
 import multer from "multer";
@@ -287,6 +288,56 @@ export function registerMediaRoutes(app: Express): void {
       return;
     }
     res.type("json").send(body);
+  });
+
+  /**
+   * Visitor-facing image registry subset for the given content entry.
+   * Same rules as SSR __INITIAL_DATA__ subset — used in edit mode so
+   * UniversalImage can flag ids that would render blank for visitors.
+   */
+  app.get("/api/image-registry/visitor-subset", (req, res) => {
+    const contentType = typeof req.query.contentType === "string" ? req.query.contentType.trim() : "";
+    const slug = typeof req.query.slug === "string" ? req.query.slug.trim() : "";
+    const locale = typeof req.query.locale === "string" && req.query.locale.trim()
+      ? req.query.locale.trim()
+      : "en";
+    const urlLocale =
+      typeof req.query.urlLocale === "string" && req.query.urlLocale.trim()
+        ? req.query.urlLocale.trim()
+        : undefined;
+
+    if (!contentType || !slug) {
+      res.status(400).json({ error: "contentType and slug are required" });
+      return;
+    }
+
+    const site = res.locals.site as import("../site-manager").SiteContext | undefined;
+    const registry = site
+      ? getMergedImageRegistry(site)
+      : getMediaGallery(res).getRegistry();
+    if (!registry) {
+      res.status(500).json({ error: "Failed to load image registry" });
+      return;
+    }
+
+    const contentRoot: string = site?.contentRoot ?? getDefaultContentRoot();
+    const ci = (site as any)?.contentIndex ?? contentIndex;
+
+    try {
+      const subset = buildVisitorImageRegistrySubset({
+        fullRegistry: registry as any,
+        contentType,
+        slug,
+        locale,
+        contentRoot,
+        contentIndex: ci,
+        urlLocale,
+      });
+      res.json(subset);
+    } catch (err: any) {
+      log.error({ err }, "visitor-subset failed");
+      res.status(500).json({ error: err?.message || "Failed to build visitor subset" });
+    }
   });
 
   app.get("/api/image-registry/family-usage", (req, res) => {

@@ -8,6 +8,7 @@ import {
   getFieldMapping,
   getFolder,
   getLocaleKey,
+  SEO_FIELD_MAPPING_KEYS,
 } from "./content-types";
 import { resolveFieldValue } from "./transform";
 import {
@@ -17,11 +18,7 @@ import {
   type SeoBlock,
 } from "./seo-fields";
 
-export const SEO_FIELD_MAPPING_KEYS = {
-  main_keyword: "seo_main_keyword",
-  pillar_path: "seo_pillar_path",
-  is_pillar: "seo_is_pillar",
-} as const;
+export { SEO_FIELD_MAPPING_KEYS };
 
 function readYamlOverlaySeo(absPath: string): SeoBlock {
   if (!fs.existsSync(absPath)) return {};
@@ -67,6 +64,16 @@ function seoFromDbItem(
   else if (hub === false || hub === "false") seo.is_pillar = false;
 
   return seo;
+}
+
+/** DB-mapped seo: baseline only (no locale YAML). Used by field provenance. */
+export function seoBaselineFromDbItem(
+  item: Record<string, unknown>,
+  contentType: string,
+  contentRoot: string,
+): SeoBlock {
+  const fieldMapping = getFieldMapping(contentType, contentRoot) || {};
+  return seoFromDbItem(item, fieldMapping);
 }
 
 function mergeSeoBlocks(base: SeoBlock, overlay: SeoBlock): SeoBlock {

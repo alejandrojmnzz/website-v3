@@ -5,11 +5,16 @@
 
 import { ValidationService } from "../../scripts/validation/service";
 import { ENTRY_LOCAL_VALIDATOR_NAMES } from "../../scripts/validation/shared/runClass";
-import { entryKeyFromContentFile } from "../../scripts/validation/shared/entryKey";
+import {
+  buildEntryKey,
+  entryKeyFromContentFile,
+} from "../../scripts/validation/shared/entryKey";
 import { getCanonicalUrl } from "../../scripts/validation/shared/canonicalUrls";
+import { isVariantLayerFile } from "../../scripts/validation/shared/draftFiles";
 import type { ContentIndex } from "../content-index";
 import type { ValidationCacheService } from "./validationCacheService";
 import { startDiagnosticsJob, isDiagnosticsRunning } from "./diagnosticsJobService";
+import { getVersioningManager } from "../versioning";
 import { child } from "../logger";
 
 const log = child({ module: "onSaveValidation" });
@@ -27,9 +32,38 @@ export type OnSaveValidationArgs = {
   contentType?: string;
   slug?: string;
   locale?: string;
-  /** When true, also queue redirects cross-entry job */
+  /** When true, also queue redirects full-graph job */
   redirectsChanged?: boolean;
 };
+
+type ResolvedSaveTarget = {
+  contentType: string;
+  slug: string;
+  locale: string;
+  variant?: string;
+};
+
+function parseLocaleVariantFromBasename(basename: string): {
+  locale: string;
+  variant?: string;
+} | null {
+  // single.es.yml | single.draft.es.yml | es.yml | draft.es.yml
+  const noExt = basename.replace(/\.ya?ml$/i, "");
+  if (noExt === "_common") return null;
+  if (noExt.startsWith("single.")) {
+    const rest = noExt.slice("single.".length);
+    if (!rest.includes(".")) return { locale: rest };
+    const parts = rest.split(".");
+    const locale = parts[parts.length - 1]!;
+    const variant = parts.slice(0, -1).join(".");
+    return { locale, variant };
+  }
+  if (!noExt.includes(".")) return { locale: noExt };
+  const parts = noExt.split(".");
+  const locale = parts[parts.length - 1]!;
+  const variant = parts.slice(0, -1).join(".");
+  return { locale, variant };
+}
 
 function resolveEntryFromPath(
   ci: ContentIndex,
@@ -37,7 +71,7 @@ function resolveEntryFromPath(
   contentType?: string,
   slug?: string,
   locale?: string,
-): { contentType: string; slug: string; locale: string } | null {
+): ResolvedSaveTarget | null {
   if (contentType && slug && locale) {
     return { contentType, slug, locale };
   }
@@ -60,10 +94,26 @@ function resolveEntryFromPath(
   };
   const ct = typeMap[folder] ?? folder.replace(/s$/, "");
   const sl = m[2]!;
-  const localePart = m[3]!;
-  const loc = localePart.includes(".") ? localePart.split(".").pop()! : localePart;
-  if (loc === "_common") return null;
-  return { contentType: ct, slug: sl, locale: loc };
+  const parsed = parseLocaleVariantFromBasename(m[3]!);
+  if (!parsed || parsed.locale === "_common") return null;
+  return {
+    contentType: ct,
+    slug: sl,
+    locale: parsed.locale,
+    variant: parsed.variant,
+  };
+}
+
+function isVariantPublished(
+  contentType: string,
+  slug: string,
+  locale: string,
+  variant: string,
+): boolean {
+  const versioningManager = getVersioningManager();
+  const ver = versioningManager.getVersioningForContent(contentType, slug) || {};
+  const row = (ver[locale]?.variants ?? []).find((v) => v.slug === variant);
+  return (row?.allocation ?? 0) > 0;
 }
 
 async function runEntryLocalNow(args: OnSaveValidationArgs): Promise<void> {
@@ -79,22 +129,48 @@ async function runEntryLocalNow(args: OnSaveValidationArgs): Promise<void> {
     return;
   }
 
+  // Path-based variant detection when callers only passed type/slug/locale
+  let variant = resolved.variant;
+  if (!variant && args.filePath && isVariantLayerFile(args.filePath)) {
+    const base = args.filePath.split(/[/\\]/).pop() || "";
+    const parsed = parseLocaleVariantFromBasename(base);
+    if (parsed?.variant) variant = parsed.variant;
+  }
+
+  if (variant) {
+    if (!isVariantPublished(resolved.contentType, resolved.slug, resolved.locale, variant)) {
+      log.info(
+        { resolved, variant },
+        "[OnSaveValidation] Unpublished variant save — skipping validation",
+      );
+      return;
+    }
+  }
+
+  const targetKey = buildEntryKey(
+    resolved.contentType,
+    resolved.slug,
+    resolved.locale,
+    variant,
+  );
+
   const service = new ValidationService();
   await service.buildContext({ contentRoot: args.contentRoot, ci: args.ci });
   const context = service.getContext();
   if (!context) return;
 
   const allFiles = context.contentFiles;
-  const filtered = allFiles.filter(
-    (f) =>
-      f.type === resolved.contentType &&
-      f.slug === resolved.slug &&
-      (f.locale === resolved.locale ||
-        (resolved.locale === "en" && f.locale === "_common")),
-  );
+  const filtered = allFiles.filter((f) => {
+    if (f.type !== resolved.contentType || f.slug !== resolved.slug) return false;
+    if (f.locale !== resolved.locale) {
+      if (!(resolved.locale === "en" && f.locale === "_common")) return false;
+    }
+    if (variant) return f.variant === variant;
+    return !f.variant;
+  });
   if (filtered.length === 0) {
     log.warn(
-      { resolved },
+      { resolved, variant, targetKey },
       "[OnSaveValidation] No contentFiles matched entry",
     );
     return;
@@ -121,7 +197,9 @@ async function runEntryLocalNow(args: OnSaveValidationArgs): Promise<void> {
     });
     context.contentFiles = allFiles;
     for (const file of filtered) {
-      args.cache.registerUrl(getCanonicalUrl(file), entryKeyFromContentFile(file));
+      if (!file.variant) {
+        args.cache.registerUrl(getCanonicalUrl(file), entryKeyFromContentFile(file));
+      }
     }
     args.cache.applyValidatorResults(result.validators, {
       contentFiles: allFiles,

@@ -10,3 +10,4 @@ export * from "./canonicalUrls";
 export * from "./schemaRegistry";
 export * from "./fieldMappingValidator";
 export * from "./draftFiles";
+export * from "./entryKey";

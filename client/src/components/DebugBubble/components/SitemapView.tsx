@@ -1,7 +1,7 @@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Clipboard, Code, Copy, Download, ExternalLink, FileText, Folder, History, Home, Info, MoreVertical, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Clipboard, Code, Copy, Download, ExternalLink, FileText, Folder, History, Home, Info, MoreVertical, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +39,7 @@ interface SitemapViewProps {
   handleDeletePage: (url: SitemapUrl) => void;
   handleDownloadYml: (url: SitemapUrl) => void;
   handleEditYaml: (url: SitemapUrl) => void;
+  handleEditPageMeta: (url: SitemapUrl) => void;
   handleRefreshCache: (url: SitemapUrl) => void;
   validationSummary: Record<string, { errorCount: number; warningCount: number }>;
   onOpenDiagnosticsForUrl: (urlPath: string) => void;
@@ -199,6 +200,7 @@ function UrlRowActions({
   handleDeletePage,
   handleDownloadYml,
   handleEditYaml,
+  handleEditPageMeta,
   handleRefreshCache,
 }: {
   url: SitemapUrl;
@@ -210,6 +212,7 @@ function UrlRowActions({
   handleDeletePage: (url: SitemapUrl) => void;
   handleDownloadYml: (url: SitemapUrl) => void;
   handleEditYaml: (url: SitemapUrl) => void;
+  handleEditPageMeta: (url: SitemapUrl) => void;
   handleRefreshCache: (url: SitemapUrl) => void;
 }) {
   const id = url.label.toLowerCase().replace(/\s+/g, "-");
@@ -254,6 +257,10 @@ function UrlRowActions({
               <Code className="h-3.5 w-3.5 mr-2" />
               Edit YAML
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleEditPageMeta(url)} className="text-[13px]" data-testid={`menu-edit-page-meta-${menuTestIdPrefix}${id}`}>
+              <Pencil className="h-3.5 w-3.5 mr-2" />
+              Edit Page Meta
+            </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => { window.location.href = `/private/repository-sync?search=${encodeURIComponent(extractSlug(url.loc))}`; }}
               className="text-[13px]"
@@ -297,6 +304,7 @@ export function SitemapView({
   handleDeletePage,
   handleDownloadYml,
   handleEditYaml,
+  handleEditPageMeta,
   handleRefreshCache,
   validationSummary,
   onOpenDiagnosticsForUrl,
@@ -578,6 +586,7 @@ export function SitemapView({
                               handleDeletePage={handleDeletePage}
                               handleDownloadYml={handleDownloadYml}
                               handleEditYaml={handleEditYaml}
+                              handleEditPageMeta={handleEditPageMeta}
                               handleRefreshCache={handleRefreshCache}
                             />
                           </div>
@@ -620,6 +629,7 @@ export function SitemapView({
                       handleDeletePage={handleDeletePage}
                       handleDownloadYml={handleDownloadYml}
                       handleEditYaml={handleEditYaml}
+                      handleEditPageMeta={handleEditPageMeta}
                       handleRefreshCache={handleRefreshCache}
                     />
                   </div>

@@ -43,6 +43,27 @@ import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import { formatSitePathsInText } from "@shared/formatSitePath";
+
+function issueLayerLabel(entryKey?: string, file?: string): string | null {
+  if (entryKey?.includes("@")) {
+    const variant = entryKey.slice(entryKey.lastIndexOf("@") + 1);
+    return variant ? `variant: ${variant}` : null;
+  }
+  const base = (file || "").split(/[/\\]/).pop() || "";
+  const isVariantPath =
+    /^[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base) ||
+    /^single\.[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base);
+  if (!isVariantPath) return null;
+  const parts = base.replace(/\.ya?ml$/i, "").split(".");
+  const variantSlug =
+    parts[0] === "single" && parts.length >= 3
+      ? parts[1]
+      : parts.length >= 2
+        ? parts.slice(0, -1).join(".")
+        : null;
+  if (!variantSlug || variantSlug === "single") return null;
+  return `variant: ${variantSlug}`;
+}
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MetricsAccessGate } from "@/components/MetricsAccessGate";
@@ -201,6 +222,7 @@ type CachedIssueRow = {
   lastFullRunAt?: string;
   suggestion?: string;
   file?: string;
+  entryKey?: string;
 };
 
 type JobStartResponse = {
@@ -1628,6 +1650,19 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                         </Badge>
                       )}
                       <code>{issue.code}</code>
+                      {(() => {
+                        const label = issueLayerLabel(issue.entryKey, issue.file);
+                        if (!label) return null;
+                        return (
+                          <Badge
+                            variant="secondary"
+                            className="text-[10px]"
+                            data-testid="badge-issue-layer"
+                          >
+                            {label}
+                          </Badge>
+                        );
+                      })()}
                       {issue.lastFullRunAt && (
                         <span className="text-muted-foreground text-[10px] ml-auto">
                           detected {formatDistanceToNow(new Date(issue.lastFullRunAt), { addSuffix: true })}

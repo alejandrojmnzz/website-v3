@@ -203,10 +203,13 @@ export interface PageDiagnostics {
   contentType: string;
   slug: string;
   locale: string;
+  variant?: string | null;
+  allocation?: number;
   entryKey?: string;
   filePath: string;
   title: string;
   dirty?: boolean;
+  validationSkippedReason?: "unpublished_variant" | string;
   schemaValidation: {
     valid: boolean;
     errors: Array<{ path: string; code: string; message: string; expected?: string; received?: string }>;

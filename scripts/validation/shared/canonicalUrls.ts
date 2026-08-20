@@ -31,24 +31,40 @@ export function normalizeUrl(url: string): string {
  * Resolve content files for a diagnostics / run-page URL.
  * Matches canonical public paths first, then type+slug+locale from parseContentUrl
  * (covers unpublished drafts whose sitemap loc is /private/preview/...).
+ *
+ * When `variant` is set, prefer the published-variant row (`file.variant`);
+ * when absent, prefer live rows (no `file.variant`).
  */
 export function matchContentFilesForUrl(
   files: ContentFile[],
   url: string,
   parsed?: { contentType: string; slug: string; locale: string } | null,
+  variant?: string | null,
 ): ContentFile[] {
   const normalizedTarget = normalizeUrl(url);
-  const byCanonical = files.filter((file) => normalizeUrl(getCanonicalUrl(file)) === normalizedTarget);
-  if (byCanonical.length > 0) return byCanonical;
-  if (!parsed) return [];
-  const byLocale = files.filter(
-    (f) =>
-      f.type === parsed.contentType &&
-      f.slug === parsed.slug &&
-      f.locale === parsed.locale,
-  );
-  if (byLocale.length > 0) return byLocale;
-  return files.filter((f) => f.type === parsed.contentType && f.slug === parsed.slug);
+  let matched = files.filter((file) => normalizeUrl(getCanonicalUrl(file)) === normalizedTarget);
+  if (matched.length === 0 && parsed) {
+    const byLocale = files.filter(
+      (f) =>
+        f.type === parsed.contentType &&
+        f.slug === parsed.slug &&
+        f.locale === parsed.locale,
+    );
+    matched = byLocale.length > 0
+      ? byLocale
+      : files.filter((f) => f.type === parsed.contentType && f.slug === parsed.slug);
+  }
+  if (matched.length === 0) return [];
+
+  if (variant) {
+    const forVariant = matched.filter((f) => f.variant === variant);
+    if (forVariant.length > 0) return forVariant;
+    // Variant requested but not loaded as ContentFile (allocation 0 / missing)
+    return [];
+  }
+
+  const live = matched.filter((f) => !f.variant);
+  return live.length > 0 ? live : matched.filter((f) => f.isDraft);
 }
 
 export const STATIC_ROUTES = [

@@ -1,10 +1,12 @@
 /**
- * Cluster health buckets and stats derived from seo-index.json.
+ * Cluster health buckets and stats derived from seo-index.json
+ * plus monitored pages with no SEO signal (Unclustered gap).
  */
 
 import type { ContentIndex } from "./content-index";
 import { contentIndex } from "./content-index";
 import { createPublicUrlResolver } from "./redirects";
+import type { MonitoredSeoGap } from "./seo-monitored-scan";
 import type { SeoIndex, SeoIndexEntry } from "./seo-index";
 
 export type ClusterBucket =
@@ -92,9 +94,29 @@ export function resolveBrokenClusterRefReason(
   return "hub_not_found";
 }
 
+function bumpUnclusteredGap(
+  stats: ClusterBucketCounts,
+  byContentType: Record<string, ClusterBucketCounts>,
+  byLocale: Record<string, ClusterBucketCounts>,
+  gap: MonitoredSeoGap,
+): void {
+  bump(stats, "unclustered");
+  const ct = gap.contentType || "unknown";
+  if (!byContentType[ct]) byContentType[ct] = emptyCounts();
+  bump(byContentType[ct], "unclustered");
+  const loc = gap.locale || "en";
+  if (!byLocale[loc]) byLocale[loc] = emptyCounts();
+  bump(byLocale[loc], "unclustered");
+}
+
+/**
+ * @param noSignalGaps Monitored pages with no effective SEO signal (not in index entries).
+ *   Opted-out index rows stay in optedOut and must not be passed here.
+ */
 export function computeClusterHealth(
   index: SeoIndex,
   ci: ContentIndex = contentIndex,
+  noSignalGaps: MonitoredSeoGap[] = [],
 ): ClusterHealth {
   const orphanIds = new Set(index.orphans);
   const stats = emptyCounts();
@@ -112,6 +134,12 @@ export function computeClusterHealth(
     const loc = row.locale || "en";
     if (!byLocale[loc]) byLocale[loc] = emptyCounts();
     bump(byLocale[loc], bucket);
+  }
+
+  for (const gap of noSignalGaps) {
+    const id = `${gap.contentType}/${gap.slug}/${gap.locale}`;
+    if (index.entries[id]) continue;
+    bumpUnclusteredGap(stats, byContentType, byLocale, gap);
   }
 
   let emptyHubCount = 0;

@@ -2518,6 +2518,13 @@ function FieldValidationMessage({
 }
 
 const KNOWN_SPECIAL_FIELDS = ["_slug", "_locale", "_hreflangs", "_updated_at", "_image"] as const;
+/** Must match server SEO_FIELD_MAPPING_KEYS — DB baselines into locale seo: (not dotted seo.*). */
+const SEO_DB_MAPPING_ROWS = [
+  { mappingKey: "seo_main_keyword", displayPath: "seo.main_keyword", label: "Main keyword", template: "{{ seo.main_keyword }}" },
+  { mappingKey: "seo_is_pillar", displayPath: "seo.is_pillar", label: "Is pillar", template: "{{ seo.is_pillar }}" },
+  { mappingKey: "seo_pillar_path", displayPath: "seo.pillar_path", label: "Pillar path", template: "{{ seo.pillar_path }}" },
+] as const;
+const SEO_DB_MAPPING_KEYS = new Set(SEO_DB_MAPPING_ROWS.map((r) => r.mappingKey));
 /** Must match server RESERVED_IMAGE_FIELD — preview/OG system special. */
 const RESERVED_IMAGE_FIELD = "_image";
 const FORBIDDEN_SCHEMA_FIELD = "image";
@@ -3318,15 +3325,16 @@ function FieldMappingDialog({
       const fullMapping: Record<string, string | { source: string; default: string | null }> = {};
       for (const [k, v] of Object.entries(mappings)) {
         if (FORBIDDEN_SCHEMA_FIELDS.has(k)) continue;
+        if (k.startsWith("seo.") || k === "seo.pillar") continue;
         // Static regular fields: force identity (no rename)
-        const sourceValue = !isDbBacked && !k.startsWith("_") && !transformerModes[k]
+        const sourceValue = !isDbBacked && !k.startsWith("_") && !transformerModes[k] && !SEO_DB_MAPPING_KEYS.has(k)
           ? k
           : v;
         if (sourceValue || KNOWN_SPECIAL_FIELDS.includes(k as typeof KNOWN_SPECIAL_FIELDS[number])) {
           const encoded = transformerModes[k]
             ? "function:" + btoa(sourceValue || "")
             : (optionalFields[k] && sourceValue ? "?" + sourceValue : sourceValue || "");
-          if (!k.startsWith("_") && k in fieldDefaults) {
+          if (!k.startsWith("_") && !SEO_DB_MAPPING_KEYS.has(k) && k in fieldDefaults) {
             fullMapping[k] = { source: encoded, default: fieldDefaults[k] };
           } else {
             fullMapping[k] = encoded;
@@ -3388,7 +3396,7 @@ function FieldMappingDialog({
   };
 
   const regularKeys = Object.keys(mappings).filter(
-    (k) => !k.startsWith("_") && !FORBIDDEN_SCHEMA_FIELDS.has(k),
+    (k) => !k.startsWith("_") && !FORBIDDEN_SCHEMA_FIELDS.has(k) && !SEO_DB_MAPPING_KEYS.has(k),
   );
   const specialKeys = Array.from(
     new Set<string>([...KNOWN_SPECIAL_FIELDS, ...Object.keys(mappings).filter((k) => k.startsWith("_"))]),
@@ -3500,15 +3508,16 @@ function FieldMappingDialog({
 
   const renderSourceEditor = (
     key: string,
-    opts?: { allowEmpty?: boolean; hideOptionalToggle?: boolean },
+    opts?: { allowEmpty?: boolean; hideOptionalToggle?: boolean; hideFunctionOption?: boolean },
   ) => {
     const isFn = !!transformerModes[key];
     const isCustom = !!customModes[key];
     const isSpecial = key.startsWith("_");
+    const isSeoDbMap = SEO_DB_MAPPING_KEYS.has(key);
     const vResult = isFn ? null : validation[key];
     const currentSrc = mappings[key] || "";
     const selectOptions = mergedSourceOptions;
-    const sameNameKey = isSpecial ? null : key;
+    const sameNameKey = isSpecial || isSeoDbMap ? null : key;
     const currentInList =
       !currentSrc ||
       selectOptions.includes(currentSrc) ||
@@ -3649,9 +3658,11 @@ function FieldMappingDialog({
               <SelectItem value="__custom__" className="text-xs font-mono text-muted-foreground italic">
                 Custom path…
               </SelectItem>
-              <SelectItem value="__function__" className="text-xs font-mono text-muted-foreground italic">
-                Compute with function…
-              </SelectItem>
+              {!opts?.hideFunctionOption && (
+                <SelectItem value="__function__" className="text-xs font-mono text-muted-foreground italic">
+                  Compute with function…
+                </SelectItem>
+              )}
             </SelectContent>
           </Select>
         )}
@@ -3814,7 +3825,9 @@ function FieldMappingDialog({
                     <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ meta.* }}"}</code>.
                     Cluster strategy fields are in the SEO fields block below (
                     <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ seo.main_keyword }}"}</code>
-                    ) — not field mapping. URL / query values use{" "}
+                    ). On database-backed types you can map a DB column as the baseline (
+                    <code className="font-mono bg-muted px-1 rounded text-xs">seo_main_keyword</code> etc.);
+                    locale YAML still wins. URL / query values use{" "}
                     <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ param.* }}"}</code>.
                   </p>
                   {contentType === "authors" && (
@@ -3992,28 +4005,11 @@ function FieldMappingDialog({
                       intentional opt-out.
                     </p>
                     <p>
-                      These three fields live on the locale YAML <code className="font-mono text-xs">seo:</code>{" "}
-                      block, not field mapping. They cannot be deleted or remapped here. Rejected on{" "}
-                      <code className="font-mono text-xs">_common.yml</code>.
+                      Same workflow as other fields: optional database column as baseline, locale YAML{" "}
+                      <code className="font-mono text-xs">seo:</code> as the override editors write, Reset restores
+                      the database baseline (clears the YAML key only — never writes the DB). Rejected on{" "}
+                      <code className="font-mono text-xs">_common.yml</code>. Edit/Reset need a locale YAML file.
                     </p>
-                    <div className="space-y-1 pt-1">
-                      {(
-                        [
-                          ["seo.main_keyword", "Main keyword", "{{ seo.main_keyword }}"],
-                          ["seo.is_pillar", "Is pillar", "{{ seo.is_pillar }}"],
-                          ["seo.pillar_path", "Pillar path", "{{ seo.pillar_path }}"],
-                        ] as const
-                      ).map(([key, labelText, tmpl]) => (
-                        <div key={key} className="flex items-center gap-2">
-                          <span className="text-xs font-mono w-36 flex-shrink-0 text-right text-muted-foreground">
-                            {key}
-                          </span>
-                          <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                          <span className="text-xs text-foreground">{labelText}</span>
-                          <code className="text-[11px] font-mono text-muted-foreground">{tmpl}</code>
-                        </div>
-                      ))}
-                    </div>
                     <button
                       type="button"
                       className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"
@@ -4028,25 +4024,58 @@ function FieldMappingDialog({
                     {showSeoAdvanced && (
                       <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2 text-xs">
                         <p>
-                          Stored as nested <code className="font-mono">seo:</code> on{" "}
-                          <code className="font-mono">{"{directory}/{slug}/{locale}.yml"}</code>. Cluster graph:{" "}
-                          <code className="font-mono">{"{contentRoot}/seo-index.json"}</code> (content GitHub,
-                          like image-registry — not GCS <code className="font-mono">sync/</code>). Writer:{" "}
-                          <code className="font-mono">server/seo-fields.ts</code> /{" "}
-                          <code className="font-mono">server/seo-index.ts</code>. Constants:{" "}
-                          <code className="font-mono">KNOWN_SEO_FIELDS</code> in{" "}
-                          <code className="font-mono">server/content-types.ts</code>. Not{" "}
-                          <code className="font-mono">field_mapping</code> —{" "}
-                          <code className="font-mono">writeMappedFields</code> would write a literal{" "}
-                          <code className="font-mono">seo.main_keyword:</code> key.{" "}
-                          <code className="font-mono">markFileAsModified</code> runs after disk; auto-commit
-                          throttle already batches YAML + JSON when they share an author. Duplicate pillars:
-                          warning only, not auto-cleared. Variant edits stay off the live cluster map until
-                          promote.
+                          Templates/edits use nested <code className="font-mono">seo:</code> on{" "}
+                          <code className="font-mono">{"{directory}/{slug}/{locale}.yml"}</code> via{" "}
+                          <code className="font-mono">writeSeoFields</code>. DB baselines use{" "}
+                          <code className="font-mono">field_mapping</code> keys{" "}
+                          <code className="font-mono">seo_main_keyword</code>,{" "}
+                          <code className="font-mono">seo_is_pillar</code>,{" "}
+                          <code className="font-mono">seo_pillar_path</code> — never dotted{" "}
+                          <code className="font-mono">seo.main_keyword</code> (rejected; would break{" "}
+                          <code className="font-mono">writeMappedFields</code>). Merge:{" "}
+                          <code className="font-mono">server/seo-effective-seo.ts</code>. Index:{" "}
+                          <code className="font-mono">{"{contentRoot}/seo-index.json"}</code>. Paths:{" "}
+                          <code className="font-mono">server/seo-fields.ts</code>,{" "}
+                          <code className="font-mono">server/seo-index.ts</code>,{" "}
+                          <code className="font-mono">KNOWN_SEO_FIELDS</code> /{" "}
+                          <code className="font-mono">SEO_FIELD_MAPPING_KEYS</code> in{" "}
+                          <code className="font-mono">server/content-types.ts</code>.
                         </p>
                       </div>
                     )}
                   </div>
+                )}
+              </div>
+
+              <div className="space-y-1 pt-1" data-testid="seo-fields-mapping-rows">
+                {SEO_DB_MAPPING_ROWS.map((row) => (
+                  <div key={row.mappingKey} className="flex items-center gap-2">
+                    <span
+                      className="text-xs font-mono w-36 flex-shrink-0 text-right text-muted-foreground truncate"
+                      title={row.displayPath}
+                    >
+                      {row.displayPath}
+                    </span>
+                    <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                    {isDbBacked ? (
+                      renderSourceEditor(row.mappingKey, {
+                        allowEmpty: true,
+                        hideOptionalToggle: true,
+                        hideFunctionOption: true,
+                      })
+                    ) : (
+                      <>
+                        <span className="text-xs text-foreground">{row.label}</span>
+                        <code className="text-[11px] font-mono text-muted-foreground">{row.template}</code>
+                      </>
+                    )}
+                  </div>
+                ))}
+                {isDbBacked && (
+                  <p className="text-[11px] text-muted-foreground leading-relaxed pt-1" data-testid="seo-fields-db-baseline-note">
+                    Default from database column; locale YAML <code className="font-mono">seo:</code> overrides
+                    and is what editors write. Reset restores the database baseline.
+                  </p>
                 )}
               </div>
             </div>
@@ -7222,6 +7251,19 @@ export default function ContentTypeManagePage() {
                                     >
                                       <Code className="h-4 w-4 mr-2" />
                                       Edit YAML
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        void beginEditSeo(
+                                          entry.slug,
+                                          entry.locales[0] || "en",
+                                        );
+                                      }}
+                                      className="text-[13px]"
+                                      data-testid={`menu-edit-page-meta-${entry.slug}`}
+                                    >
+                                      <Pencil className="h-4 w-4 mr-2" />
+                                      Edit Page Meta
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                       onClick={() => {

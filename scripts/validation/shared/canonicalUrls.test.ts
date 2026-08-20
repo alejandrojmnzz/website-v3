@@ -19,6 +19,20 @@ describe("matchContentFilesForUrl", () => {
     url: "/es/coding-bootcamps/ai-engineering-bootcamp-chile",
   });
 
+  const live: ContentFile = {
+    slug: "foo",
+    title: "Foo",
+    type: "landing",
+    locale: "es",
+    url: "/landing/foo",
+    filePath: "site/landings/foo/es.yml",
+  };
+  const publishedVariant: ContentFile = {
+    ...live,
+    variant: "draft",
+    filePath: "site/landings/foo/draft.es.yml",
+  };
+
   it("matches a public canonical URL", () => {
     expect(
       matchContentFilesForUrl([draft], "/es/coding-bootcamps/ai-engineering-bootcamp-chile"),
@@ -33,6 +47,24 @@ describe("matchContentFilesForUrl", () => {
         { contentType: "program", slug: "ai-engineering-bootcamp-chile", locale: "es" },
       ),
     ).toEqual([draft]);
+  });
+
+  it("prefers live over published variant when no variant requested", () => {
+    expect(
+      matchContentFilesForUrl([live, publishedVariant], "/landing/foo"),
+    ).toEqual([live]);
+  });
+
+  it("returns published variant when variant is requested", () => {
+    expect(
+      matchContentFilesForUrl([live, publishedVariant], "/landing/foo", null, "draft"),
+    ).toEqual([publishedVariant]);
+  });
+
+  it("returns empty when requested variant is not loaded (unpublished)", () => {
+    expect(
+      matchContentFilesForUrl([live], "/landing/foo", null, "draft"),
+    ).toEqual([]);
   });
 });
 
