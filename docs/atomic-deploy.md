@@ -33,16 +33,28 @@ curl -fsS http://127.0.0.1:5000/health
 
 Until this flip, `deploy.sh` still builds releases and updates `current`, but the running service may keep using the legacy root tree — the script prints a WARNING if `WorkingDirectory` ≠ `…/current`.
 
+## Site adopt (new `site_*` created at runtime)
+
+The app writes to `cwd/site_…` and does not know about `persistent/`. On each deploy, before building the new release, `deploy.sh`:
+
+1. Finds real (non-symlink) `site_*` dirs under `current/` (and legacy app root)
+2. `mv` them into `persistent/`
+3. Puts an absolute symlink back at the old path so the live process keeps working
+4. Then links those folders into the new release as usual
+
+If `persistent/site_…` already exists, adopt skips (does not overwrite). Empty `persistent` folders are still created for new `content_folder` entries in `sites.yml` when nothing exists yet.
+
 ## Deploy path
 
 GitHub Actions (`deploy-vps.yml`) exports `DEPLOY_SHA` + `WEBSITE_RUNTIME_B64`, fetches that commit on the VPS, extracts `scripts/deploy.sh` from that SHA, and runs it. The script:
 
-1. `git archive` → `releases/<sha>/`
-2. Symlinks → `persistent/`
-3. Writes `.env`
-4. `npm ci` + build
-5. Flips `current`, restarts, health-checks (rollback `current` on failure)
-6. Prunes old releases (keeps active + 5 others; never deletes `readlink current`)
+1. Adopt real `site_*` dirs into `persistent/` (symlink back on live tree)
+2. `git archive` → `releases/<sha>/`
+3. Symlinks → `persistent/`
+4. Writes `.env`
+5. `npm ci` + build
+6. Flips `current`, restarts, health-checks (rollback `current` on failure)
+7. Prunes old releases (keeps active + 5 others; never deletes `readlink current`)
 
 ## Manual rollback
 

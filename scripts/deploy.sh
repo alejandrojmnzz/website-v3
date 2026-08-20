@@ -22,8 +22,95 @@ CURRENT_LINK="$APP_ROOT/current"
 
 mkdir -p "$APP_ROOT/releases" "$PERSISTENT"
 
+# content_folder values from sites.yml (site_* only).
+list_sites_yml_folders() {
+  local yml="$1"
+  [[ -f "$yml" ]] || return 0
+  python3 - "$yml" <<'PY'
+import sys
+from pathlib import Path
+try:
+    import yaml
+except ImportError:
+    yaml = None
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+folders = set()
+if yaml is not None:
+    data = yaml.safe_load(text) or {}
+    if isinstance(data, dict):
+        for key, val in data.items():
+            if key in ("bucket_name",) or not isinstance(val, dict):
+                continue
+            cf = val.get("content_folder")
+            if isinstance(cf, str) and cf.startswith("site_"):
+                folders.add(cf)
+else:
+    import re
+    for m in re.finditer(r"content_folder:\s*(\S+)", text):
+        cf = m.group(1).strip().strip("\"'")
+        if cf.startswith("site_"):
+            folders.add(cf)
+for cf in sorted(folders):
+    print(cf)
+PY
+}
+
+# Move real site_* dirs into persistent/ and put a symlink back (no app downtime hole).
+adopt_site_path() {
+  local src="$1"
+  local name
+  name="$(basename "$src")"
+  local dest="$PERSISTENT/$name"
+
+  [[ "$name" == site_* ]] || return 0
+  if [[ -L "$src" ]]; then
+    return 0
+  fi
+  if [[ ! -d "$src" ]]; then
+    return 0
+  fi
+
+  if [[ -e "$dest" || -L "$dest" ]]; then
+    echo "[deploy] adopt skip $name: $dest already exists (leaving $src as real dir)" >&2
+    return 0
+  fi
+
+  echo "[deploy] adopting $src -> $dest"
+  mv "$src" "$dest"
+  ln -sfn "$dest" "$src"
+}
+
+adopt_into_persistent() {
+  echo "[deploy] adopting real site_* dirs into persistent/"
+  local -A seen=()
+  local p name
+
+  shopt -s nullglob
+  for p in "$CURRENT_LINK"/site_* "$APP_ROOT"/site_*; do
+    [[ -e "$p" || -L "$p" ]] || continue
+    name="$(basename "$p")"
+    [[ -n "${seen[$name]:-}" ]] && continue
+    seen[$name]=1
+    adopt_site_path "$p"
+  done
+  shopt -u nullglob
+
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    [[ -n "${seen[$name]:-}" ]] && continue
+    seen[$name]=1
+    if [[ -e "$CURRENT_LINK/$name" || -L "$CURRENT_LINK/$name" ]]; then
+      adopt_site_path "$CURRENT_LINK/$name"
+    elif [[ -e "$APP_ROOT/$name" || -L "$APP_ROOT/$name" ]]; then
+      adopt_site_path "$APP_ROOT/$name"
+    fi
+  done < <(list_sites_yml_folders "$PERSISTENT/sites.yml")
+}
+
 echo "[deploy] fetching $DEPLOY_SHA"
 git -C "$APP_ROOT" fetch --prune origin "$DEPLOY_SHA"
+
+adopt_into_persistent
 
 if [[ -e "$RELEASE" ]]; then
   echo "[deploy] removing incomplete/previous tree at $RELEASE"
@@ -83,40 +170,10 @@ for dir in "$PERSISTENT"/site_*; do
 done
 shopt -u nullglob
 
-if [[ -f "$PERSISTENT/sites.yml" ]]; then
-  while IFS= read -r folder; do
-    [[ -n "$folder" ]] || continue
-    link_persistent "$folder"
-  done < <(python3 - "$PERSISTENT/sites.yml" <<'PY'
-import sys
-from pathlib import Path
-try:
-    import yaml
-except ImportError:
-    yaml = None
-text = Path(sys.argv[1]).read_text(encoding="utf-8")
-folders = set()
-if yaml is not None:
-    data = yaml.safe_load(text) or {}
-    if isinstance(data, dict):
-        for key, val in data.items():
-            if key in ("bucket_name",) or not isinstance(val, dict):
-                continue
-            cf = val.get("content_folder")
-            if isinstance(cf, str) and cf.startswith("site_"):
-                folders.add(cf)
-else:
-    # Minimal fallback without PyYAML
-    import re
-    for m in re.finditer(r"content_folder:\s*(\S+)", text):
-        cf = m.group(1).strip().strip("\"'")
-        if cf.startswith("site_"):
-            folders.add(cf)
-for cf in sorted(folders):
-    print(cf)
-PY
-)
-fi
+while IFS= read -r folder; do
+  [[ -n "$folder" ]] || continue
+  link_persistent "$folder"
+done < <(list_sites_yml_folders "$PERSISTENT/sites.yml")
 
 copy_prior_env() {
   local dest="$1"
