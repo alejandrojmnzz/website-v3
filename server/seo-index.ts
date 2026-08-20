@@ -33,19 +33,29 @@ import {
   classifyClusterEntry,
   computeClusterHealth as computeClusterHealthBuckets,
   listBrokenClusterRefs,
+  listClusterBucketEntries as listClusterBucketEntriesCore,
   type BrokenClusterRefReason,
   type BrokenClusterRefRow,
   type ClusterBucket,
+  type ClusterBucketEntryRow,
+  type ClusterFilterBucket,
   type ClusterHealth,
+  type ListClusterBucketEntriesResult,
 } from "./seo-cluster-stats";
 export {
   classifyClusterEntry,
   listBrokenClusterRefs,
+  isClusterFilterBucket,
+  CLUSTER_FILTER_BUCKETS,
   type BrokenClusterRefReason,
   type BrokenClusterRefRow,
   type ClusterBucket,
+  type ClusterBucketEntryRow,
+  type ClusterFilterBucket,
   type ClusterHealth,
-};import {
+  type ListClusterBucketEntriesResult,
+} from "./seo-cluster-stats";
+import {
   canonicalizePillarPath,
   entryCanonicalPath,
   mergeSeoUpdates,
@@ -511,6 +521,32 @@ export function computeClusterHealth(
 ): ClusterHealth {
   const gaps = listMonitoredNoSeoSignalGaps(contentRoot);
   return computeClusterHealthBuckets(index, ci, gaps);
+}
+
+/** Paginated cluster-bucket entries including monitored no-signal gaps for Unclustered. */
+export function listClusterBucketEntries(
+  index: SeoIndex,
+  opts: {
+    bucket: ClusterFilterBucket;
+    q?: string;
+    page?: number;
+    pageSize?: number;
+    ci?: ContentIndex;
+    contentRoot?: string;
+  },
+): ListClusterBucketEntriesResult {
+  const gaps =
+    opts.bucket === "unclustered"
+      ? listMonitoredNoSeoSignalGaps(opts.contentRoot)
+      : [];
+  return listClusterBucketEntriesCore(index, {
+    bucket: opts.bucket,
+    q: opts.q,
+    page: opts.page,
+    pageSize: opts.pageSize,
+    ci: opts.ci,
+    noSignalGaps: gaps,
+  });
 }
 
 export function getClusterFromIndex(

@@ -4,6 +4,7 @@ import type { ContentFile, Validator, ValidatorResult, ValidationContext, Valida
 import { hasSchemaOrgContributors } from "@shared/schema-org-sections";
 import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
 import { getCanonicalUrl } from "../shared/canonicalUrls";
+import { liveFilesForSeo } from "../shared/seoValidationScope";
 
 let _generateSsrSchemaHtml: ((url: string) => string | Promise<string>) | null = null;
 async function getGenerateSsrSchemaHtml(): Promise<(url: string) => string | Promise<string>> {
@@ -92,7 +93,7 @@ export const schemaCompletenessValidator: Validator = {
     let totalJsonLdBlocks = 0;
     let placeholderValues = 0;
 
-    for (const file of context.contentFiles) {
+    for (const file of liveFilesForSeo(context)) {
       const url = getCanonicalUrl(file);
       let html = "";
 

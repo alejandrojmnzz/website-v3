@@ -11,3 +11,4 @@ export * from "./schemaRegistry";
 export * from "./fieldMappingValidator";
 export * from "./draftFiles";
 export * from "./entryKey";
+export * from "./seoValidationScope";

@@ -5,6 +5,7 @@ import {
   getComponentSchema,
   getComponentVariant,
   resolveSiteContext,
+  getMcpSiteConfigs,
 } from "../lib/content.js";
 import { assertSafeSegment, assertWithinBase } from "../lib/sanitize.js";
 import { getTokenUsername } from "../lib/oauth.js";
@@ -30,9 +31,23 @@ function internalHeaders(mcpToken?: string): Record<string, string> {
 const SITE_PARAM_DESC =
   'Domain of the target site from sites.yml, e.g. "4geeks.com" (required when multiple sites are configured; optional when only one site exists). Multi-site: always pass site. If unsure, call list_sites first.';
 
+function inheritForMcpFolder(contentFolder: string): string | undefined {
+  const want = contentFolder.replace(/\\/g, "/").replace(/\/+$/, "");
+  for (const c of getMcpSiteConfigs()) {
+    const folder = c.contentFolder.replace(/\\/g, "/").replace(/\/+$/, "");
+    if (folder === want) return (c as { inheritComponentsFrom?: string }).inheritComponentsFrom;
+  }
+  return undefined;
+}
+
 function assertResolvedComponent(componentType: string, contentFolder: string): string | null {
   try {
-    const resolved = resolveComponentPath(componentType, contentFolder);
+    const resolved = resolveComponentPath(
+      componentType,
+      contentFolder,
+      process.cwd(),
+      inheritForMcpFolder(contentFolder),
+    );
     if (!resolved) return `Component '${componentType}' not found in registry.`;
     assertWithinBase(resolved.componentDir, resolved.registryRoot);
     return null;

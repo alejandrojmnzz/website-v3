@@ -183,3 +183,187 @@ export function listBrokenClusterRefs(
     };
   });
 }
+
+/** Filter buckets exposed by GET /api/seo/cluster-entries (not hub/optedOut). */
+export type ClusterFilterBucket =
+  | "unclustered"
+  | "partiallySet"
+  | "brokenRefs"
+  | "emptyHubs"
+  | "clustered";
+
+export const CLUSTER_FILTER_BUCKETS: readonly ClusterFilterBucket[] = [
+  "unclustered",
+  "partiallySet",
+  "brokenRefs",
+  "emptyHubs",
+  "clustered",
+] as const;
+
+export type ClusterBucketEntryRow = {
+  id: string;
+  slug: string;
+  contentType: string;
+  locale: string;
+  path: string;
+  main_keyword: string | null;
+  file: string;
+  reason?: BrokenClusterRefReason;
+  pillar_path?: string | null;
+};
+
+export type ListClusterBucketEntriesResult = {
+  items: ClusterBucketEntryRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+function entryToRow(
+  id: string,
+  row: SeoIndexEntry,
+  extras?: Partial<ClusterBucketEntryRow>,
+): ClusterBucketEntryRow {
+  return {
+    id,
+    slug: row.slug,
+    contentType: row.content_type || "unknown",
+    locale: row.locale || "en",
+    path: row.path || "",
+    main_keyword: row.main_keyword ?? null,
+    file: row.file || "",
+    pillar_path:
+      typeof row.pillar_path === "string"
+        ? row.pillar_path
+        : row.pillar_path === null
+          ? null
+          : undefined,
+    ...extras,
+  };
+}
+
+function gapToRow(gap: MonitoredSeoGap): ClusterBucketEntryRow {
+  const id = `${gap.contentType}/${gap.slug}/${gap.locale}`;
+  return {
+    id,
+    slug: gap.slug,
+    contentType: gap.contentType || "unknown",
+    locale: gap.locale || "en",
+    path: "",
+    main_keyword: null,
+    file: "",
+  };
+}
+
+function matchesQuery(row: ClusterBucketEntryRow, q: string): boolean {
+  if (!q) return true;
+  const hay = [
+    row.slug,
+    row.path,
+    row.contentType,
+    row.locale,
+    row.main_keyword ?? "",
+    row.pillar_path ?? "",
+    row.id,
+  ]
+    .join(" ")
+    .toLowerCase();
+  return hay.includes(q);
+}
+
+function sortBucketRows(a: ClusterBucketEntryRow, b: ClusterBucketEntryRow): number {
+  const ct = a.contentType.localeCompare(b.contentType);
+  if (ct !== 0) return ct;
+  const sl = a.slug.localeCompare(b.slug);
+  if (sl !== 0) return sl;
+  return a.locale.localeCompare(b.locale);
+}
+
+function classifyToFilterBucket(bucket: ClusterBucket): ClusterFilterBucket | null {
+  if (bucket === "unclustered") return "unclustered";
+  if (bucket === "partiallySet") return "partiallySet";
+  if (bucket === "brokenRef") return "brokenRefs";
+  if (bucket === "clustered") return "clustered";
+  return null;
+}
+
+/**
+ * List entries for one cluster-health filter bucket, with search + pagination.
+ * Unclustered includes monitored no-signal gaps (same as computeClusterHealth).
+ * Clustered is spokes only (excludes hubs). Empty hubs are pillars with zero members.
+ */
+export function listClusterBucketEntries(
+  index: SeoIndex,
+  opts: {
+    bucket: ClusterFilterBucket;
+    q?: string;
+    page?: number;
+    pageSize?: number;
+    ci?: ContentIndex;
+    noSignalGaps?: MonitoredSeoGap[];
+  },
+): ListClusterBucketEntriesResult {
+  const ci = opts.ci ?? contentIndex;
+  const noSignalGaps = opts.noSignalGaps ?? [];
+  const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 25));
+  const page = Math.max(1, opts.page ?? 1);
+  const q = (opts.q ?? "").trim().toLowerCase();
+  const orphanIds = new Set(index.orphans);
+  const rows: ClusterBucketEntryRow[] = [];
+
+  if (opts.bucket === "emptyHubs") {
+    for (const [hubId, cluster] of Object.entries(index.clusters)) {
+      if (cluster.members.length > 0) continue;
+      const hub = index.entries[hubId];
+      if (hub) {
+        rows.push(entryToRow(hubId, hub, { path: hub.path || cluster.path || "" }));
+      } else {
+        const parts = hubId.split("/");
+        rows.push({
+          id: hubId,
+          slug: parts[1] || hubId,
+          contentType: parts[0] || "unknown",
+          locale: parts[2] || "en",
+          path: cluster.path || "",
+          main_keyword: null,
+          file: "",
+        });
+      }
+    }
+  } else {
+    for (const [id, row] of Object.entries(index.entries)) {
+      const classified = classifyClusterEntry(row, orphanIds);
+      const filterBucket = classifyToFilterBucket(classified);
+      if (filterBucket !== opts.bucket) continue;
+      if (opts.bucket === "brokenRefs") {
+        rows.push(
+          entryToRow(id, row, {
+            reason: resolveBrokenClusterRefReason(index, row, ci),
+            pillar_path: typeof row.pillar_path === "string" ? row.pillar_path : "",
+          }),
+        );
+      } else {
+        rows.push(entryToRow(id, row));
+      }
+    }
+
+    if (opts.bucket === "unclustered") {
+      for (const gap of noSignalGaps) {
+        const id = `${gap.contentType}/${gap.slug}/${gap.locale}`;
+        if (index.entries[id]) continue;
+        rows.push(gapToRow(gap));
+      }
+    }
+  }
+
+  const filtered = rows.filter((r) => matchesQuery(r, q)).sort(sortBucketRows);
+  const total = filtered.length;
+  const start = (page - 1) * pageSize;
+  const items = filtered.slice(start, start + pageSize);
+
+  return { items, total, page, pageSize };
+}
+
+export function isClusterFilterBucket(value: string): value is ClusterFilterBucket {
+  return (CLUSTER_FILTER_BUCKETS as readonly string[]).includes(value);
+}

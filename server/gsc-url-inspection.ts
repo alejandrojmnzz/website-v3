@@ -222,23 +222,29 @@ function queueGscInspectionUpload(contentRootName: string, json: string): void {
 
 export async function loadGscInspectionStoreFromBucket(
   contentRootName: string,
+  opts?: { forceFromGcs?: boolean },
 ): Promise<"gcs" | "local" | "empty"> {
   const hasLocal = fs.existsSync(sidecarPath(contentRootName));
-  if (!isGscGcsProduction()) {
+  const forceFromGcs = Boolean(opts?.forceFromGcs);
+  // Boot / normal reload: production only. Dev can opt in via forceFromGcs (pull prod cache).
+  if (!isGscGcsProduction() && !forceFromGcs) {
     log.info({ contentRootName }, "[GSC] Development mode, using local sidecar only");
     return hasLocal ? "local" : "empty";
   }
 
   const client = gcsClient();
   if (!client.available) {
-    log.info({ contentRootName }, "[GSC] GCS unavailable, using local sidecar");
+    client.initBootstrapFromEnv();
+  }
+  if (!client.available) {
+    log.info({ contentRootName, forceFromGcs }, "[GSC] GCS unavailable, using local sidecar");
     return hasLocal ? "local" : "empty";
   }
 
   try {
     const result = await client.downloadFirstExisting(gscUrlInspectionReadKeys(contentRootName));
     if (!result) {
-      log.info({ contentRootName }, "[GSC] No inspection sidecar in bucket");
+      log.info({ contentRootName, forceFromGcs }, "[GSC] No inspection sidecar in bucket");
       return hasLocal ? "local" : "empty";
     }
 
@@ -261,12 +267,12 @@ export async function loadGscInspectionStoreFromBucket(
     };
     saveStore(contentRootName, store, { skipGcs: true });
     log.info(
-      { contentRootName, count: Object.keys(store.records).length },
+      { contentRootName, count: Object.keys(store.records).length, forceFromGcs },
       "[GSC] Loaded inspection sidecar from GCS",
     );
     return "gcs";
   } catch (err) {
-    log.error({ err, contentRootName }, "[GSC] Error loading inspection sidecar from bucket");
+    log.error({ err, contentRootName, forceFromGcs }, "[GSC] Error loading inspection sidecar from bucket");
     return hasLocal ? "local" : "empty";
   }
 }
@@ -277,11 +283,26 @@ export async function loadGscInspectionStoresFromBucket(contentRootNames: string
 
 export async function reloadGscInspectionStoreFromBucket(
   contentRootName: string,
-): Promise<"gcs" | "local"> {
+  opts?: { forceFromGcs?: boolean },
+): Promise<"gcs" | "local" | "empty"> {
   memory.delete(contentRootName);
-  const source = await loadGscInspectionStoreFromBucket(contentRootName);
+  const source = await loadGscInspectionStoreFromBucket(contentRootName, opts);
   if (source !== "gcs") loadStore(contentRootName);
-  return source === "gcs" ? "gcs" : "local";
+  return source;
+}
+
+/** Dev-only helper: pull production sidecar into local .cache (never uploads). */
+export async function pullGscInspectionStoreFromBucket(
+  contentRootName: string,
+): Promise<{ source: "gcs" | "local" | "empty"; recordCount: number; gcsKey: string }> {
+  const gcsKey = gscInspectionGcsKey(contentRootName);
+  const source = await reloadGscInspectionStoreFromBucket(contentRootName, { forceFromGcs: true });
+  const store = loadStore(contentRootName);
+  return {
+    source,
+    recordCount: Object.keys(store.records).length,
+    gcsKey,
+  };
 }
 
 export interface ReuploadGscInspectionResult {

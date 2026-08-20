@@ -29,7 +29,7 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 | `content_system` | How YAML content files are structured, merged, and loaded safely |
 | `routing` | How URL patterns and locale prefixes work |
 | `images` | How images are registered, referenced, and rendered |
-| `sections` | How section components are defined, registered, and rendered |
+| `sections` | Section components, registry, in-page CTA hashes (`#section_id` modal/scroll, `inline#`, `#top`/`#bottom`) |
 | `semantic_search` | Qdrant, local embeddings, database `vector_search`, keyword fallback |
 | `local_databases` | Local YAML private DBs; MCP item CRUD; global index; FAQ database (`frequently_asked_questions`) |
 | `component-behaviors` | behaviors ids, CTA `tracking`, conversion_events catalog, CRM tags allowlist |

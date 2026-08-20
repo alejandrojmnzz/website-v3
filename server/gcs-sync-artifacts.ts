@@ -572,10 +572,14 @@ export async function downloadSyncArtifact(
       case "gsc-url-inspection": {
         const ctx = requireSite(siteFolder);
         const { reloadGscInspectionStoreFromBucket } = await import("./gsc-url-inspection");
-        const source = await reloadGscInspectionStoreFromBucket(ctx.contentRootName);
+        // In development, Cloud Sync download should still pull the production sidecar.
+        const forceFromGcs = process.env.NODE_ENV !== "production";
+        const source = await reloadGscInspectionStoreFromBucket(ctx.contentRootName, {
+          forceFromGcs,
+        });
         return {
           success: true,
-          source,
+          source: source === "empty" ? "local" : source,
           gcsKey: meta.gcsKey,
           message:
             source === "gcs"

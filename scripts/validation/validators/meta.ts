@@ -10,7 +10,7 @@
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { validateRequiredMeta } from "../../../shared/validateRequiredMeta";
 import { resolveSingleVars } from "../../../server/single-resolver";
-import { skipLiveVariantOverlay } from "../shared/draftFiles";
+import { liveFilesForSeo } from "../shared/seoValidationScope";
 
 const VALID_CHANGE_FREQUENCIES = [
   "always",
@@ -36,9 +36,7 @@ export const metaValidator: Validator = {
     const errors: ValidationIssue[] = [];
     const warnings: ValidationIssue[] = [];
 
-    for (const file of context.contentFiles) {
-      if (skipLiveVariantOverlay(file)) continue;
-
+    for (const file of liveFilesForSeo(context)) {
       const rawMeta = file.meta || {};
       // Resolve {{ single.* }} against file data when possible so template-only meta fails if empty
       const bag: Record<string, unknown> = {

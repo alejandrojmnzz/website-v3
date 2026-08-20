@@ -67,20 +67,11 @@ export function matchContentFilesForUrl(
   return live.length > 0 ? live : matched.filter((f) => f.isDraft);
 }
 
-export const STATIC_ROUTES = [
-  "/",
-  "/us",
-  "/es",
-  "/en/career-programs",
-  "/es/programas-de-carrera",
-  "/en/locations",
-  "/es/ubicaciones",
-  "/en/apply",
-  "/es/aplica",
-  "/dashboard",
-  "/component-showcase",
-];
-
+/**
+ * Live URLs for redirect overwrite checks come from content files / content index only.
+ * Locale-home aliases (`/`, `/en`, `/es`, `/us`) are never injected here — see
+ * `@shared/public-app-routes` and `isLiveContentUrl`.
+ */
 export function buildValidUrlSet(contentFiles: ContentFile[]): Set<string> {
   const validUrls = new Set<string>();
 
@@ -111,8 +102,6 @@ export function buildValidUrlSet(contentFiles: ContentFile[]): Set<string> {
       add(contentIndex.buildUrl(file.type, locale, slug));
     }
   }
-
-  STATIC_ROUTES.forEach((route) => add(route));
 
   return validUrls;
 }

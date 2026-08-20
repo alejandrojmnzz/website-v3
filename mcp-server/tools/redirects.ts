@@ -199,7 +199,7 @@ function testNextActions(data: InspectPayload): NextAction[] {
 export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
   mcp.tool(
     "test_redirect",
-    "Inspect one public URL against CMS redirects (seo_edit). Two stores: dest-locale {directory}/{slug}/{locale}.yml meta.redirects and site_<name>/custom-redirects.yml. First-match winner only; extra claims in conflicts[] (duplicate_from | regex_shadowed | overwrites_content). Inspect only — use update_redirect to change a rule. Does not dump the catalog. Live URL set includes validator STATIC_ROUTES (scripts/validation/shared/canonicalUrls.ts) plus content index (homepage /us is live even when not a resolved content URL).",
+    "Inspect one public URL against CMS redirects (seo_edit). Two stores: dest-locale {directory}/{slug}/{locale}.yml meta.redirects and site_<name>/custom-redirects.yml. First-match winner only; extra claims in conflicts[] (duplicate_from | regex_shadowed | overwrites_content). Inspect only — use update_redirect to change a rule. Does not dump the catalog. live_content = contentIndex.isKnownUrl only; locale-home aliases (/ , /en, /es, /us) are never live (301 to canonical homes).",
     {
       url: z.string().describe("Public path or full URL to test, e.g. /us or /en/blog/foo"),
       locale: z.string().optional().describe("Request locale for multi-locale redirect targets (default en)"),
@@ -276,7 +276,7 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
       to: z.string().optional().describe("Destination path or URL (required for add)"),
       source: z.string().optional().describe("Relative YAML path of the rule (required for delete; custom-redirects.yml for move if passed)"),
       before_from: z.string().optional().describe("Insert/move immediately above this custom from. Custom-redirects.yml only. Omit on add = append at end."),
-      confirm_overwrite_content: z.boolean().optional().describe("Required to hide or unhide a live URL (STATIC_ROUTES + content index, including /us)"),
+      confirm_overwrite_content: z.boolean().optional().describe("Required to hide or unhide a live content URL (contentIndex.isKnownUrl). Locale-home aliases (/ , /en, /es, /us) are not live."),
       confirm_live_edit: z.boolean().optional().describe("Required when writing a dest-locale file that has versioning.yml. Does not replace confirm_overwrite_content."),
       variant: z.string().optional().describe("Refused — redirects are live routing only"),
       locale: z.string().optional().describe("Optional locale for inspect / dest resolution (add)"),

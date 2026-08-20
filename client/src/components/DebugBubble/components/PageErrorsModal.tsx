@@ -52,6 +52,7 @@ export const PER_PAGE_VALIDATORS = [
   "unknown-keys",
   "seo-depth",
   "seo-intent",
+  "seo-cluster",
   "schema-completeness",
   "content-quality",
   "section-variants",

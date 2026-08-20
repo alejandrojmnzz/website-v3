@@ -7,6 +7,7 @@
  */
 
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
+import { liveFilesForSeo } from "../shared/seoValidationScope";
 
 export const schemaValidator: Validator = {
   name: "schema",
@@ -22,7 +23,7 @@ export const schemaValidator: Validator = {
 
     const availableSchemasList = Array.from(context.availableSchemas).join(", ");
 
-    for (const file of context.contentFiles) {
+    for (const file of liveFilesForSeo(context)) {
       if (file.schema?.include) {
         for (const schemaRef of file.schema.include) {
           if (!context.availableSchemas.has(schemaRef)) {

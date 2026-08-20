@@ -63,6 +63,10 @@ import {
   prepareArticleAddStamp,
 } from "../lib/article-hints.js";
 import {
+  hintsAfterAddModal,
+  hintsAfterReplaceModals,
+} from "../lib/modal-hints.js";
+import {
   SITE_PARAM_DESC,
   MULTI_SITE_TOOL_BLURB,
   siteFailResult,
@@ -893,7 +897,7 @@ export function registerPageTools(
     "Get the SEO/meta block plus structured-data preview for a page, with the identifying envelope (contentType, slug, locale, locales, urls). " +
     "Returns meta, seo (locale seo.main_keyword / pillar_path / is_pillar), include_in_clustering (derived: false only when seo.pillar_path is explicit null), " +
     "index (live seo-index.json row; omitted for variants), " +
-    "validation_issues (cached SEO-category issues from meta / seo-depth / seo-intent), and a rich schema_org block: " +
+    "validation_issues (cached SEO-category issues from meta / seo-depth / seo-intent / seo-cluster), and a rich schema_org block: " +
     "resolved JSON-LD documents + sources (same pipeline as SSR section contributors + Organization dual-emit), " +
     "content-type requirements / hero companion gaps. " +
     "Use this to inspect what Google gets — not for editing schema_org YAML (use get_entry_content / section tools). " +
@@ -3576,6 +3580,8 @@ export function registerPageTools(
     "Reading time (on-page and OG) combines all article bodies and shows on the first only; mobile/top TOC only on the first; desktop side TOC may still appear on later parts. " +
     "toc_group is optional/legacy — not a decision knob. Response may include article_split_always_share / article_lead_* warnings. " +
     "See get_component_variant → article_split_toc_group or explain_site topic 'sections'.\n\n" +
+    "IMPORTANT — modal sections: type: modal must have section_id so CTAs can open it with url: \"#that-id\". " +
+    "Response may include modal_missing_section_id. See explain_site topic 'sections'.\n\n" +
     "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
     "you MUST ask the user before calling this tool: " +
     "'Do you want to edit the live version directly, or create a new draft variant first?' " +
@@ -3788,6 +3794,16 @@ export function registerPageTools(
         ...next_actions,
         ...articleHints.next_actions.filter((a) => a.tool !== "update_fields"),
       ];
+
+      const modalHints = hintsAfterAddModal({
+        newSection: sectionToAdd,
+        insertIndex: index,
+        existingSectionCount: existingSections.length,
+        slug,
+        locale,
+      });
+      warnings.push(...modalHints.warnings);
+      next_actions = [...next_actions, ...modalHints.next_actions];
 
       return ok(
         {
@@ -4127,6 +4143,8 @@ export function registerPageTools(
     "cache refresh, and Git mark-modified.\n\n" +
     "Possible errors: page/locale not found, path traversal detected, remote conflict " +
     "(returns remoteContent + intendedContent for manual merge), permission denied.\n\n" +
+    "IMPORTANT — modal sections: any type: modal without section_id yields modal_missing_section_id " +
+    "(CTAs need url: \"#that-id\"). See explain_site topic 'sections'.\n\n" +
     "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
     "you MUST ask the user before calling this tool: " +
     "'Do you want to edit the live version directly, or create a new draft variant first?' " +
@@ -4280,6 +4298,15 @@ export function registerPageTools(
       });
       warnings.push(...articleHints.warnings);
       next_actions = [...next_actions, ...articleHints.next_actions];
+
+      const modalHints = hintsAfterReplaceModals({
+        sections: sections as Array<Record<string, unknown>>,
+        slug,
+        locale,
+      });
+      warnings.push(...modalHints.warnings);
+      next_actions = [...next_actions, ...modalHints.next_actions];
+
       const stampEffect: McpSideEffect = {
         kind: "locale_yaml",
         summary: `Wrote ${pathInfo.relativeHint}; section copy/images stamp updated_at (layout-only replace does not).`,

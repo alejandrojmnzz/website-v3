@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { classifyClusterEntry, computeClusterHealth } from "./seo-cluster-stats";
+import {
+  classifyClusterEntry,
+  computeClusterHealth,
+  listClusterBucketEntries,
+} from "./seo-cluster-stats";
 import type { SeoIndex, SeoIndexEntry } from "./seo-index";
 
 function row(partial: Partial<SeoIndexEntry> & { slug: string }): SeoIndexEntry {
@@ -102,5 +106,91 @@ describe("computeClusterHealth", () => {
     const health = computeClusterHealth(emptyIndex({ "blog/bare/en": bare }));
     expect(health.stats.unclustered).toBe(1);
     expect(health.stats.optedOut).toBe(0);
+  });
+});
+
+describe("listClusterBucketEntries", () => {
+  it("includes no-signal gaps in unclustered and excludes hubs from clustered", () => {
+    const hub = row({
+      slug: "hub",
+      is_pillar: true,
+      path: "/en/blog/hub",
+      pillar_path: "/en/blog/hub",
+    });
+    const spoke = row({
+      slug: "spoke",
+      pillar_path: "/en/blog/hub",
+      main_keyword: "topic",
+      path: "/en/blog/spoke",
+    });
+    const bare = row({ slug: "bare", pillar_path: "", path: "/en/blog/bare" });
+    const index = emptyIndex({
+      "blog/hub/en": hub,
+      "blog/spoke/en": spoke,
+      "blog/bare/en": bare,
+    });
+    index.by_path["/en/blog/hub"] = "blog/hub/en";
+    index.clusters["blog/hub/en"] = { path: "/en/blog/hub", members: ["blog/spoke/en"] };
+
+    const unclustered = listClusterBucketEntries(index, {
+      bucket: "unclustered",
+      noSignalGaps: [{ contentType: "blog", slug: "gap-page", locale: "en" }],
+    });
+    expect(unclustered.total).toBe(2);
+    expect(unclustered.items.map((r) => r.slug).sort()).toEqual(["bare", "gap-page"]);
+
+    const clustered = listClusterBucketEntries(index, { bucket: "clustered" });
+    expect(clustered.total).toBe(1);
+    expect(clustered.items[0]?.slug).toBe("spoke");
+  });
+
+  it("lists empty hubs and paginates / filters by q", () => {
+    const emptyHub = row({
+      slug: "lonely",
+      is_pillar: true,
+      path: "/en/blog/lonely",
+      pillar_path: "/en/blog/lonely",
+      main_keyword: "lonely topic",
+    });
+    const filledHub = row({
+      slug: "busy",
+      is_pillar: true,
+      path: "/en/blog/busy",
+      pillar_path: "/en/blog/busy",
+    });
+    const spoke = row({ slug: "member", pillar_path: "/en/blog/busy" });
+    const index = emptyIndex({
+      "blog/lonely/en": emptyHub,
+      "blog/busy/en": filledHub,
+      "blog/member/en": spoke,
+    });
+    index.clusters["blog/lonely/en"] = { path: "/en/blog/lonely", members: [] };
+    index.clusters["blog/busy/en"] = { path: "/en/blog/busy", members: ["blog/member/en"] };
+
+    const empty = listClusterBucketEntries(index, { bucket: "emptyHubs" });
+    expect(empty.total).toBe(1);
+    expect(empty.items[0]?.slug).toBe("lonely");
+
+    const filtered = listClusterBucketEntries(index, {
+      bucket: "emptyHubs",
+      q: "lonely topic",
+    });
+    expect(filtered.total).toBe(1);
+
+    const miss = listClusterBucketEntries(index, { bucket: "emptyHubs", q: "zzzz" });
+    expect(miss.total).toBe(0);
+
+    const page1 = listClusterBucketEntries(index, {
+      bucket: "unclustered",
+      page: 1,
+      pageSize: 1,
+      noSignalGaps: [
+        { contentType: "blog", slug: "a-gap", locale: "en" },
+        { contentType: "blog", slug: "b-gap", locale: "en" },
+      ],
+    });
+    expect(page1.total).toBe(2);
+    expect(page1.items).toHaveLength(1);
+    expect(page1.pageSize).toBe(1);
   });
 });

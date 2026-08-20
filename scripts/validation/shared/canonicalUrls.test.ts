@@ -101,4 +101,12 @@ describe("buildValidUrlSet", () => {
     expect(urls.has("/en/apply")).toBe(true);
     expect(urls.has("/es/aplica")).toBe(true);
   });
+
+  it("does not inject locale-home aliases", () => {
+    const urls = buildValidUrlSet([]);
+    expect(urls.has("/")).toBe(false);
+    expect(urls.has("/us")).toBe(false);
+    expect(urls.has("/en")).toBe(false);
+    expect(urls.has("/es")).toBe(false);
+  });
 });

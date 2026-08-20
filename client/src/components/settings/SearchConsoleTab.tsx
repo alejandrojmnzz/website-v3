@@ -282,7 +282,9 @@ export function SearchConsoleTab() {
             <code className="font-mono text-xs">{"{site}"}/sync/gsc-url-inspection.json</code> from GCS into{" "}
             <code className="font-mono text-xs">.cache/{"{site}"}/gsc-url-inspection.json</code>. Local{" "}
             <code className="font-mono text-xs">npm run dev</code> uses the <code className="font-mono text-xs">.cache</code>{" "}
-            file only. Restarts do not call Google. The inspect queue is not stored in GCS.
+            file only (or <strong className="text-foreground font-medium">Load production</strong> on SEO/GEO →
+            Search Console coverage to overwrite that file from GCS). Restarts do not call Google. The inspect
+            queue is not stored in GCS.
           </p>
           <p>
             In production, each inspect write updates disk then uploads to GCS after about 30 seconds (same
@@ -323,6 +325,7 @@ export function SearchConsoleTab() {
               <p>{"{contentRoot}"}/sync/gsc-url-inspection.json</p>
               <p>GET/POST /api/debug/gsc-inspection</p>
               <p>GET /api/debug/gsc-inspection/sites</p>
+              <p>POST /api/debug/gsc-inspection/pull-from-gcs (dev only)</p>
               <p>PUT /api/settings/search-console</p>
             </CollapsibleContent>
           </Collapsible>

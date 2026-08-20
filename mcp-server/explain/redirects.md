@@ -26,7 +26,7 @@ A write **does not** update the other store.
 
 Exact `before` → regex `before` → fallbacks → canonical soft-match. `conflicts[].kind`: `duplicate_from` \| `regex_shadowed` \| `overwrites_content`.
 
-`overwrites_content` uses validator **`STATIC_ROUTES`** (`scripts/validation/shared/canonicalUrls.ts`, includes `/us`) **plus** `contentIndex.isKnownUrl`. Homepage `/us` is live even when it is not a resolved content URL.
+`overwrites_content` uses **`contentIndex.isKnownUrl` only** (not the SEO sitemap). Locale-home aliases (`/`, `/en`, `/es`, `/us` — see `shared/public-app-routes.ts` `LOCALE_HOME_ALIASES`) are **not** live; they must 301 to the canonical homepage per locale (`/en/home`, `/es/inicio`). After app routing changes, re-run validation / clear diagnostics cache if stale overwrite issues linger.
 
 ## `update_redirect`
 

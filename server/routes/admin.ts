@@ -3376,12 +3376,16 @@ export function registerAdminRoutes(app: Express): void {
       const auth = await requireCapability(req, res, "webmaster");
       if (!auth.authorized) return;
 
-      const { name, domain, githubRepoUrl, includeSampleContent } = req.body as {
-        name?: string;
-        domain?: string;
-        githubRepoUrl?: string;
-        includeSampleContent?: boolean;
-      };
+      const { name, domain, githubRepoUrl, includeSampleContent, inheritComponentsFrom, fallbackContentFolder } =
+        req.body as {
+          name?: string;
+          domain?: string;
+          githubRepoUrl?: string;
+          includeSampleContent?: boolean;
+          /** Empty string = own registry (no inherit). Omit = default to first site folder. */
+          inheritComponentsFrom?: string | null;
+          fallbackContentFolder?: string | null;
+        };
 
       if (!name || typeof name !== "string") {
         return res.status(400).json({ error: "Missing required field: name" });
@@ -3406,6 +3410,22 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       const { ensureSiteScaffold } = await import("../site-scaffold");
+      const { getDefaultContentFolder } = await import("../site-config");
+      const defaultFolder = getDefaultContentFolder();
+
+      // Default inherit + image fallback to the default site; empty string clears inherit.
+      const inheritFolder =
+        inheritComponentsFrom === "" || inheritComponentsFrom === null
+          ? undefined
+          : (typeof inheritComponentsFrom === "string" && inheritComponentsFrom.trim()) ||
+            defaultFolder;
+      const fallbackFolder =
+        fallbackContentFolder === "" || fallbackContentFolder === null
+          ? undefined
+          : (typeof fallbackContentFolder === "string" && fallbackContentFolder.trim()) ||
+            inheritFolder ||
+            defaultFolder;
+
       ensureSiteScaffold({
         contentFolder: folderName,
         displayName: name,
@@ -3416,7 +3436,10 @@ export function registerAdminRoutes(app: Express): void {
       const { readSitesYmlLocal, saveSitesYml } = await import("../sites-yml-store");
       let sitesContent = readSitesYmlLocal() ?? "";
       if (sitesContent && !sitesContent.endsWith("\n")) sitesContent += "\n";
-      const newEntry = `${domain}:\n  content_folder: ${folderName}\n${githubRepoUrl ? `  github_repo_url: ${githubRepoUrl}\n` : ""}`;
+      let newEntry = `${domain}:\n  content_folder: ${folderName}\n`;
+      if (githubRepoUrl) newEntry += `  github_repo_url: ${githubRepoUrl}\n`;
+      if (inheritFolder) newEntry += `  inherit_components_from: ${inheritFolder}\n`;
+      if (fallbackFolder) newEntry += `  fallback_content_folder: ${fallbackFolder}\n`;
       sitesContent += newEntry;
       saveSitesYml(sitesContent);
       resetSiteConfigs();

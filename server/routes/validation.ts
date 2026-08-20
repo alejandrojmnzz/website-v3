@@ -670,6 +670,9 @@ export function registerValidationRoutes(app: Express): void {
   app.get("/api/validation/cache-issues", async (req, res) => {
     const auth = await requireCapability(req, res, "metrics_view");
     if (!auth.authorized) return;
+    const severityRaw = typeof req.query.severity === "string" ? req.query.severity : undefined;
+    const severity =
+      severityRaw === "error" || severityRaw === "warning" ? severityRaw : undefined;
     const filters = {
       entryKey: typeof req.query.entryKey === "string" ? req.query.entryKey : undefined,
       url: typeof req.query.url === "string" ? req.query.url : undefined,
@@ -678,8 +681,13 @@ export function registerValidationRoutes(app: Express): void {
       media: typeof req.query.media === "string" ? req.query.media : undefined,
       database: typeof req.query.database === "string" ? req.query.database : undefined,
       file: typeof req.query.file === "string" ? req.query.file : undefined,
+      validator: typeof req.query.validator === "string" ? req.query.validator : undefined,
+      category: typeof req.query.category === "string" ? req.query.category : undefined,
+      code: typeof req.query.code === "string" ? req.query.code : undefined,
+      severity,
     };
-    res.json({ issues: listCacheIssues(getValidationCache(res), filters) });
+    const { issues, facets } = listCacheIssues(getValidationCache(res), filters);
+    res.json({ issues, facets });
   });
 
   app.post("/api/validation/cache-issues/dismiss", async (req, res) => {

@@ -9,6 +9,7 @@ import {
   GscInspectAlreadyRunningError,
   enqueueGscInspects,
   getGscInspectQueueStats,
+  cancelGscInspects,
   resetGscInspectQueueForTests,
   selectGscInspectLocs,
   setGscInspectQueueHooksForTests,
@@ -237,6 +238,49 @@ describe("gsc-inspect-queue", () => {
     expect(stats.aborted).toBeNull();
     expect(stats.failed).toBe(1);
     expect(stats.completed).toBe(2);
+  });
+
+  it("cancelGscInspects drops remaining URLs and keeps completed rows", async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const calls: string[] = [];
+    setGscInspectQueueHooksForTests({
+      delayFn: async () => {},
+      inspectOneFn: async ({ loc }) => {
+        calls.push(loc);
+        if (loc === publicA) await firstGate;
+        return { requested: loc, loc, record: { inspectedAt: "t" } };
+      },
+    });
+
+    enqueueGscInspects({
+      mode: "all",
+      contentRoot: "site_demo",
+      contentRootName: "site_demo",
+      debugUrls: sampleUrls,
+    });
+
+    await vi.waitFor(() => {
+      expect(getGscInspectQueueStats().active).toBe(publicA);
+    });
+
+    const cancelled = cancelGscInspects();
+    expect(cancelled.stopped).toBe(true);
+    expect(cancelled.queue.running).toBe(false);
+    expect(cancelled.queue.aborted).toBe("cancelled");
+    expect(cancelled.queue.pending).toBe(0);
+
+    releaseFirst();
+    await waitUntilIdle();
+
+    expect(calls).toEqual([publicA]);
+    expect(getGscInspectQueueStats().aborted).toBe("cancelled");
+    expect(getGscInspectQueueStats().running).toBe(false);
+
+    const idle = cancelGscInspects();
+    expect(idle.stopped).toBe(false);
   });
 
   it("waits the inspect interval between Google calls", async () => {

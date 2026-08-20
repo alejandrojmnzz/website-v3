@@ -11,6 +11,12 @@ export interface SiteConfig {
   githubRepoUrl?: string;
   /** When an image_id is missing locally, resolve it from this site's registry. */
   fallbackContentFolder?: string;
+  /**
+   * Use this site's component-registry (schema / field-editors / examples).
+   * One hop only; the parent must own a registry (must not itself inherit).
+   * When set, this site must not have a local component-registry/ directory.
+   */
+  inheritComponentsFrom?: string;
   /** Hostnames that 301-redirect to this site's canonical domain (e.g. ["www.4geeks.com"]). */
   aliases?: string[];
 }
@@ -25,7 +31,8 @@ const SITES_YML_EXAMPLE = `# sites.yml — required at repo root
 # example.com:
 #   content_folder: site_example-com
 #   github_repo_url: https://github.com/org/example-content
-#   fallback_content_folder: site_parent-com  # optional
+#   fallback_content_folder: site_parent-com  # optional — missing images
+#   inherit_components_from: site_parent-com  # optional — component-registry
 
 bucket_name: my-gcs-bucket
 
@@ -87,6 +94,10 @@ function parseSitesYmlFile(sitesYml: string): SiteConfig[] {
         (typeof c.fallback_content_folder === "string" && c.fallback_content_folder) ||
         (typeof c.fallbackContentFolder === "string" && c.fallbackContentFolder) ||
         undefined;
+      const inheritFrom =
+        (typeof c.inherit_components_from === "string" && c.inherit_components_from.trim()) ||
+        (typeof c.inheritComponentsFrom === "string" && c.inheritComponentsFrom.trim()) ||
+        undefined;
       const rawAliases = (c.aliases ?? c.alias) as unknown;
       const aliases = Array.isArray(rawAliases)
         ? rawAliases.filter((a): a is string => typeof a === "string" && a.trim() !== "").map((a) => a.trim().toLowerCase())
@@ -98,6 +109,7 @@ function parseSitesYmlFile(sitesYml: string): SiteConfig[] {
         contentFolder: (c.content_folder as string) || (c.contentFolder as string) || "site_default",
         githubRepoUrl: (c.github_repo_url as string) || (c.githubRepoUrl as string) || undefined,
         fallbackContentFolder: fallbackFolder || undefined,
+        inheritComponentsFrom: inheritFrom || undefined,
         aliases,
       });
     }
@@ -124,7 +136,61 @@ function parseSitesYmlFile(sitesYml: string): SiteConfig[] {
     }
   }
 
+  validateInheritComponentsFrom(configs);
+
   return configs;
+}
+
+function normalizeFolderKey(folder: string): string {
+  return folder.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+/** One-hop inherit: known folder, not self, parent does not inherit, parent exists on disk. */
+function validateInheritComponentsFrom(configs: SiteConfig[]): void {
+  const byFolder = new Map(configs.map((c) => [normalizeFolderKey(c.contentFolder), c]));
+  const cwd = process.cwd();
+
+  for (const c of configs) {
+    const inherit = c.inheritComponentsFrom?.trim();
+    if (!inherit) continue;
+    const want = normalizeFolderKey(inherit);
+    const self = normalizeFolderKey(c.contentFolder);
+    if (want === self) {
+      throw new SitesYmlRequiredError(
+        `site "${c.domain}" inherit_components_from cannot be its own content_folder (${c.contentFolder})`,
+      );
+    }
+    const parent = byFolder.get(want);
+    if (!parent) {
+      throw new SitesYmlRequiredError(
+        `site "${c.domain}" inherit_components_from "${inherit}" is not a content_folder of any site in sites.yml`,
+      );
+    }
+    if (parent.inheritComponentsFrom?.trim()) {
+      throw new SitesYmlRequiredError(
+        `site "${c.domain}" inherit_components_from "${inherit}" is invalid — parent site "${parent.domain}" also inherits (one hop only)`,
+      );
+    }
+    const parentAbs = path.isAbsolute(parent.contentFolder)
+      ? parent.contentFolder
+      : path.join(cwd, parent.contentFolder);
+    if (!fs.existsSync(parentAbs) || !fs.statSync(parentAbs).isDirectory()) {
+      throw new SitesYmlRequiredError(
+        `site "${c.domain}" inherit_components_from "${inherit}" — parent folder missing on disk: ${parentAbs}`,
+      );
+    }
+  }
+}
+
+/** Lookup inherit_components_from for a content folder (undefined if none / unknown). */
+export function getInheritComponentsFrom(contentFolder: string): string | undefined {
+  const want = normalizeFolderKey(contentFolder);
+  for (const c of getSiteConfigs()) {
+    if (normalizeFolderKey(c.contentFolder) === want) {
+      return c.inheritComponentsFrom?.trim() || undefined;
+    }
+  }
+  return undefined;
 }
 
 /** Load site configs from sites.yml; throws SitesYmlRequiredError when missing or invalid. */

@@ -28,6 +28,10 @@ All marketing content lives under the site folder from `sites.yml` (`content_fol
   image-registry.json     # centralized image metadata
   theme.json              # color theme tokens
   component-registry/     # versioned component schemas and examples
+                          # Optional: omit when sites.yml sets inherit_components_from
+                          # to another site's folder (parent-only; child must not have this dir).
+                          # Platform-shared types (e.g. hero, awards_marquee, text_block, article)
+                          # live under shared/component-registry/ in the app repo.
   menus/                  # menu definitions (navbar, footer, etc.)
   <type-directory>/       # one folder per content type (e.g. pages/, programs/)
     <slug>/
@@ -37,6 +41,10 @@ All marketing content lives under the site folder from `sites.yml` (`content_fol
       draft.en.yml        # unpublished draft (or any {variant}.{locale}.yml)
       versioning.yml      # optional: A/B / draft variant configuration
 ```
+
+**Layout rule:** entries are always `{type-dir}/{slug}/{locale}.yml` (folder per slug). Flat files like `pages/about.en.yml` are **not** indexed. Site Manager scaffold and `create_entry` write folders only.
+
+**sites.yml `inherit_components_from`:** optional parent `content_folder` for that site's component-registry (schema / field-editors / examples). One hop; parent must own a registry. Non-effect: does not copy registry files into the child; `create_entry` still writes YAML under the **current** site's content folder.
 
 ## Draft vs live vs variant
 

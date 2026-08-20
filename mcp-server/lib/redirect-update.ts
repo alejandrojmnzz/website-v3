@@ -172,7 +172,7 @@ export function stackedConfirmPayload(
   const parts: string[] = [];
   if (missing.includes("confirm_overwrite_content")) {
     parts.push(
-      "This hides or unhides a live URL (validator STATIC_ROUTES + content index, including /us). Ask the user first, then re-call with confirm_overwrite_content: true.",
+      "This hides or unhides a live content URL (contentIndex.isKnownUrl). Locale-home aliases (/ , /en, /es, /us) are not live. Ask the user first, then re-call with confirm_overwrite_content: true.",
     );
   }
   if (missing.includes("confirm_live_edit")) {

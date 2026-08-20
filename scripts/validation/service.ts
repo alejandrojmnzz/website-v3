@@ -18,7 +18,38 @@ import { buildValidUrlSet } from "./shared/canonicalUrls";
 import { getAvailableSchemaKeys } from "./shared/schemaRegistry";
 import { validators, allValidators, getValidator, listValidators, ensureValidatorRegistered } from "./validators";
 import { databaseHealthValidator } from "./validators/database-health";
-import { getSitemap } from "../../server/sitemap";
+import { getSitemap, getSitemapUrls } from "../../server/sitemap";
+
+/** Strip origin so sitemap locs compare to path-only getCanonicalUrl values. */
+export function sitemapLocToPath(loc: string): string {
+  let path = loc;
+  try {
+    if (/^https?:\/\//i.test(loc)) {
+      path = new URL(loc).pathname || "/";
+    }
+  } catch {
+    /* keep as path */
+  }
+  if (!path.startsWith("/")) path = `/${path}`;
+  if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
+  return path || "/";
+}
+
+export function mapSitemapUrlsToEntries(
+  urls: Array<{
+    loc: string;
+    locale?: string;
+    content_type?: string;
+    slug?: string;
+  }>,
+): SitemapEntry[] {
+  return urls.map((u) => ({
+    loc: sitemapLocToPath(u.loc),
+    type: u.content_type ?? "static",
+    ...(u.slug ? { slug: u.slug } : {}),
+    ...(u.locale ? { locale: u.locale } : {}),
+  }));
+}
 
 export class ValidationService {
   private context: ValidationContext | null = null;
@@ -32,7 +63,12 @@ export class ValidationService {
     const validUrls = buildValidUrlSet(contentFiles);
     const availableSchemas = getAvailableSchemaKeys();
 
-    const sitemapEntries: SitemapEntry[] = [];
+    let sitemapEntries: SitemapEntry[] = [];
+    try {
+      sitemapEntries = await this.loadSitemapEntries();
+    } catch {
+      sitemapEntries = [];
+    }
 
     let sitemapXml: string | undefined;
     try {
@@ -56,7 +92,7 @@ export class ValidationService {
   }
 
   async loadSitemapEntries(): Promise<SitemapEntry[]> {
-    return [];
+    return mapSitemapUrlsToEntries(getSitemapUrls());
   }
 
   async runValidators(options: ValidationRunOptions = {}): Promise<ValidationRunResult> {

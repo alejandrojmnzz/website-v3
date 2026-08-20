@@ -230,13 +230,13 @@ import {
   getRecord,
   gscPropertyAccessFromRecords,
   isStale,
-  resolvePublicInspectLoc,
   hasMainSeoKeyword,
   homepageLocFromDebug,
   inspectAndStore,
   isPreviewLoc,
   listGscSites,
   loadStore,
+  pullGscInspectionStoreFromBucket,
   resolvePublicInspectLoc,
   sitemapHostMatchesGsc,
   suggestedGscSiteUrl,
@@ -244,6 +244,7 @@ import {
 import {
   enqueueGscInspects,
   getGscInspectQueueStats,
+  cancelGscInspects,
   GscInspectAlreadyRunningError,
   type GscInspectMode,
 } from "../gsc-inspect-queue";
@@ -504,6 +505,65 @@ export function registerSeoRoutes(app: Express): void {
 
   app.get("/api/debug/gsc-inspection/queue", (_req, res) => {
     res.json(getGscInspectQueueStats());
+  });
+
+  app.post("/api/debug/gsc-inspection/cancel", async (req, res) => {
+    try {
+      const auth = await requireCapability(req, res, "seo_edit");
+      if (!auth.authorized) return;
+
+      const result = cancelGscInspects();
+      res.json({
+        success: true,
+        stopped: result.stopped,
+        queue: result.queue,
+        message: result.stopped
+          ? "Inspect stopped. Rows already written were kept. Use Never inspected to continue missing URLs."
+          : "No inspect job was running.",
+      });
+    } catch (err) {
+      log.error({ err }, "GSC inspect cancel failed");
+      res.status(500).json({ error: err instanceof Error ? err.message : "Cancel failed" });
+    }
+  });
+
+  /** Dev-only: overwrite local .cache sidecar with the production GCS copy (no Google inspect calls). */
+  app.post("/api/debug/gsc-inspection/pull-from-gcs", async (req, res) => {
+    try {
+      if (process.env.NODE_ENV === "production") {
+        res.status(403).json({
+          error: "Pulling the production Search Console cache is only available in development.",
+          code: "dev_only",
+        });
+        return;
+      }
+
+      const auth = await requireCapability(req, res, "seo_edit");
+      if (!auth.authorized) return;
+
+      const contentRootName = getContentRootName(res);
+      const result = await pullGscInspectionStoreFromBucket(contentRootName);
+      if (result.source !== "gcs") {
+        res.status(404).json({
+          error:
+            result.source === "empty"
+              ? "No Search Console inspection sidecar found in GCS (and no local file)."
+              : "Could not download from GCS — kept or fell back to the local sidecar. Check GCS_BUCKET_NAME and credentials.",
+          code: "gcs_pull_failed",
+          ...result,
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        ...result,
+        message: `Loaded ${result.recordCount} inspection row(s) from ${result.gcsKey} into local .cache.`,
+      });
+    } catch (err) {
+      log.error({ err }, "GSC pull-from-gcs failed");
+      res.status(500).json({ error: err instanceof Error ? err.message : "Pull from GCS failed" });
+    }
   });
 
   app.post("/api/debug/gsc-inspection/enqueue", async (req, res) => {
@@ -807,7 +867,6 @@ export function registerSeoRoutes(app: Express): void {
         faqCoverage,
         schemaCoverage,
         indexRebuilt: !!seoIndex.rebuilt,
-        indexWarnings: seoIndex.warnings || [],
         totals: {
           totalPages,
           withPillar,
@@ -820,6 +879,41 @@ export function registerSeoRoutes(app: Express): void {
       });
     } catch (err) {
       res.status(500).json({ error: "Failed to build SEO overview", message: String(err) });
+    }
+  });
+
+  app.get("/api/seo/cluster-entries", async (req, res) => {
+    try {
+      const bucketRaw = typeof req.query.bucket === "string" ? req.query.bucket : "";
+      const {
+        loadSeoIndex,
+        listClusterBucketEntries,
+        isClusterFilterBucket,
+      } = await import("../seo-index");
+      if (!isClusterFilterBucket(bucketRaw)) {
+        res.status(400).json({
+          error:
+            "Invalid bucket. Must be one of: unclustered, partiallySet, brokenRefs, emptyHubs, clustered",
+        });
+        return;
+      }
+      const q = typeof req.query.q === "string" ? req.query.q : "";
+      const page = Math.max(1, parseInt(String(req.query.page || "1"), 10) || 1);
+      const pageSizeRaw = parseInt(String(req.query.pageSize || "25"), 10) || 25;
+      const pageSize = Math.min(100, Math.max(1, pageSizeRaw));
+      const contentRoot = getContentRoot(res);
+      const seoIndex = loadSeoIndex(contentRoot);
+      const result = listClusterBucketEntries(seoIndex, {
+        bucket: bucketRaw,
+        q,
+        page,
+        pageSize,
+        ci: getCI(res),
+        contentRoot,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to list cluster entries", message: String(err) });
     }
   });
 

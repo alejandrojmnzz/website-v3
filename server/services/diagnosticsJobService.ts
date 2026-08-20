@@ -830,26 +830,8 @@ export function listDiagnosticsJobs(contentRoot: string): DiagnosticsJobEnvelope
 
 export function listCacheIssues(
   cache: ValidationCacheService,
-  filters?: {
-    entryKey?: string;
-    url?: string;
-    scope?: import("../../scripts/validation/shared/runClass").ValidationScope;
-    redirect?: string;
-    media?: string;
-    database?: string;
-  },
-): Array<{
-  url: string;
-  entryKey?: string;
-  severity: "error" | "warning";
-  code: string;
-  message: string;
-  validator?: string;
-  category?: string;
-  lastFullRunAt?: string;
-  suggestion?: string;
-  file?: string;
-}> {
+  filters?: import("./validationCacheService").ListCacheIssuesFilters,
+): ReturnType<typeof listCacheIssuesFromStore> {
   return listCacheIssuesFromStore(cache, filters);
 }
 

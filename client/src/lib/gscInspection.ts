@@ -96,7 +96,7 @@ export function gscPermissionLabel(level: string): string {
 }
 
 export type GscInspectMode = "never" | "stale" | "all";
-export type GscInspectAborted = "permission_denied" | null;
+export type GscInspectAborted = "permission_denied" | "cancelled" | null;
 
 export interface GscInspectQueueStats {
   pending: number;

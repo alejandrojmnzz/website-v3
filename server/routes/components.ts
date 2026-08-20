@@ -297,7 +297,7 @@ export function registerComponentsRoutes(app: Express): void {
 
   // Field editors endpoint - returns all field editor configs from component registry
   app.get("/api/component-registry/field-editors", (_req, res) => {
-    const fieldEditors = loadAllFieldEditors();
+    const fieldEditors = loadAllFieldEditors(getContentRootName(res));
     res.json(fieldEditors);
   });
 

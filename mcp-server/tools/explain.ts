@@ -34,7 +34,7 @@ const TOPIC_DESC: Record<string, string> = {
   content_system: "YAML content files, _common.yml merge, safeYamlLoad requirement",
   routing: "URL patterns, locale prefixes (/en/, /es/), dynamic route generation",
   images: "Image registry, UniversalImage component, image_id referencing",
-  sections: "SectionRenderer, component registry, how sections are authored",
+  sections: "SectionRenderer, component registry, in-page CTA hashes (#section_id modal/scroll, inline#, #top/#bottom)",
   semantic_search:
     "Qdrant vector store, local embeddings, database vector_search, keyword fallback",
   local_databases:

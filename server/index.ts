@@ -338,7 +338,12 @@ app.use((req, res, next) => {
   // Shared vs site registry types must not collide
   const { assertNoRegistryCollisionsForAllSites } = await import("../shared/registry-resolve");
   const { getSiteConfigs } = await import("./site-config");
-  assertNoRegistryCollisionsForAllSites(getSiteConfigs().map((s) => s.contentFolder));
+  assertNoRegistryCollisionsForAllSites(
+    getSiteConfigs().map((s) => ({
+      contentFolder: s.contentFolder,
+      inheritComponentsFrom: s.inheritComponentsFrom,
+    })),
+  );
 
   app.use(siteResolutionMiddleware);
 

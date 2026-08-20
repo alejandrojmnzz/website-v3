@@ -16,6 +16,7 @@ import type { Validator, ValidatorResult, ValidationContext, ValidationIssue, Re
 import { normalizeUrl, getCanonicalUrl } from "../shared/canonicalUrls";
 import { isLiveRedirectSource } from "../shared/draftFiles";
 import { formatSitePath } from "../../../shared/formatSitePath";
+import { isLocaleHomeAlias } from "@shared/public-app-routes";
 
 interface CustomRedirectEntry {
   from: string;
@@ -138,7 +139,7 @@ export const redirectValidator: Validator = {
           continue;
         }
 
-        if (context.validUrls.has(normalizedRedirect)) {
+        if (context.validUrls.has(normalizedRedirect) && !isLocaleHomeAlias(normalizedRedirect)) {
           errors.push({
             type: "error",
             code: "REDIRECT_OVERWRITES_CONTENT",
@@ -183,7 +184,7 @@ export const redirectValidator: Validator = {
         continue;
       }
 
-      if (context.validUrls.has(normalizedFrom)) {
+      if (context.validUrls.has(normalizedFrom) && !isLocaleHomeAlias(normalizedFrom)) {
         errors.push({
           type: "error",
           code: "REDIRECT_OVERWRITES_CONTENT",

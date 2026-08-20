@@ -794,18 +794,7 @@ export class ValidationCacheService {
   }
 }
 
-export function listCacheIssuesFromStore(
-  cache: ValidationCacheService,
-  filters?: {
-    entryKey?: string;
-    url?: string;
-    scope?: ValidationScope;
-    redirect?: string;
-    media?: string;
-    database?: string;
-    file?: string;
-  },
-): Array<{
+export type CacheIssueListRow = {
   url: string;
   entryKey?: string;
   severity: "error" | "warning";
@@ -816,7 +805,50 @@ export function listCacheIssuesFromStore(
   lastFullRunAt?: string;
   suggestion?: string;
   file?: string;
-}> {
+};
+
+export type CacheIssueFacets = {
+  validator: string[];
+  category: string[];
+  code: string[];
+  severity: Array<"error" | "warning">;
+};
+
+export type ListCacheIssuesFilters = {
+  entryKey?: string;
+  url?: string;
+  scope?: ValidationScope;
+  redirect?: string;
+  media?: string;
+  database?: string;
+  file?: string;
+  validator?: string;
+  category?: string;
+  code?: string;
+  severity?: "error" | "warning";
+};
+
+function uniqueSorted(values: Iterable<string>): string[] {
+  return [...new Set(values)].filter(Boolean).sort((a, b) => a.localeCompare(b));
+}
+
+export function buildCacheIssueFacets(rows: CacheIssueListRow[]): CacheIssueFacets {
+  const severities = new Set<"error" | "warning">();
+  for (const r of rows) {
+    if (r.severity === "error" || r.severity === "warning") severities.add(r.severity);
+  }
+  return {
+    validator: uniqueSorted(rows.map((r) => r.validator ?? "")),
+    category: uniqueSorted(rows.map((r) => r.category ?? "")),
+    code: uniqueSorted(rows.map((r) => r.code)),
+    severity: (["error", "warning"] as const).filter((s) => severities.has(s)),
+  };
+}
+
+export function listCacheIssuesFromStore(
+  cache: ValidationCacheService,
+  filters?: ListCacheIssuesFilters,
+): { issues: CacheIssueListRow[]; facets: CacheIssueFacets } {
   let issues = cache.getAllIssues();
 
   if (filters?.entryKey) {
@@ -848,18 +880,20 @@ export function listCacheIssuesFromStore(
     issues = cache.getAllIssues().filter((i) => i.file === filters.file);
   }
 
-  const out: Array<{
-    url: string;
-    entryKey?: string;
-    severity: "error" | "warning";
-    code: string;
-    message: string;
-    validator?: string;
-    category?: string;
-    lastFullRunAt?: string;
-    suggestion?: string;
-    file?: string;
-  }> = [];
+  if (filters?.validator) {
+    issues = issues.filter((i) => i.validator === filters.validator);
+  }
+  if (filters?.category) {
+    issues = issues.filter((i) => i.category === filters.category);
+  }
+  if (filters?.code) {
+    issues = issues.filter((i) => i.code === filters.code);
+  }
+  if (filters?.severity) {
+    issues = issues.filter((i) => i.severity === filters.severity);
+  }
+
+  const out: CacheIssueListRow[] = [];
 
   for (const issue of issues) {
     if (issue.severity === "info") continue;
@@ -897,7 +931,7 @@ export function listCacheIssuesFromStore(
       });
     }
   }
-  return out;
+  return { issues: out, facets: buildCacheIssueFacets(out) };
 }
 
 let _defaultInstance: ValidationCacheService | null = null;

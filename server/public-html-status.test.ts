@@ -38,10 +38,18 @@ describe("resolvePublicHtmlStatus", () => {
 
   it("returns 200 for static and private paths without asking the index", () => {
     const ci = fakeCi(new Set());
-    expect(resolvePublicHtmlStatus({ url: "/en", contentIndex: ci })).toBe(200);
     expect(resolvePublicHtmlStatus({ url: "/es/aplica", contentIndex: ci })).toBe(200);
+    expect(resolvePublicHtmlStatus({ url: "/preview-frame", contentIndex: ci })).toBe(200);
     expect(resolvePublicHtmlStatus({ url: "/private/diagnostics", contentIndex: ci })).toBe(200);
     expect(ci.isKnownUrl).not.toHaveBeenCalled();
+  });
+
+  it("does not treat locale-home aliases as static 200", () => {
+    const ci = fakeCi(new Set());
+    expect(resolvePublicHtmlStatus({ url: "/", contentIndex: ci })).toBe(404);
+    expect(resolvePublicHtmlStatus({ url: "/en", contentIndex: ci })).toBe(404);
+    expect(resolvePublicHtmlStatus({ url: "/es", contentIndex: ci })).toBe(404);
+    expect(resolvePublicHtmlStatus({ url: "/us", contentIndex: ci })).toBe(404);
   });
 
   it("returns 404 for a blog post path when contentIndex is missing", () => {

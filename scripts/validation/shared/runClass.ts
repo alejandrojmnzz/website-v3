@@ -77,6 +77,7 @@ export const ENTRY_LOCAL_VALIDATOR_NAMES = [
   "unknown-keys",
   "seo-depth",
   "seo-intent",
+  "seo-cluster",
   "schema-completeness",
   "schema-org-companions",
   "content-quality",

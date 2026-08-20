@@ -139,14 +139,15 @@ export function formatAsLlmPrompt(result: ValidationRunResult): string {
   const validatorNames = result.validators.map((v) => v.name);
   const persona = getPersona(validatorNames);
 
-  const hasSeoIntent = validatorNames.includes("seo-intent");
+  const hasSeoContext =
+    validatorNames.includes("seo-intent") || validatorNames.includes("seo-cluster");
 
   const sections: string[] = [
     persona,
     REPO_CONTEXT,
   ];
 
-  if (hasSeoIntent) {
+  if (hasSeoContext) {
     const seoBlock = buildSeoContextBlock();
     if (seoBlock) sections.push(seoBlock);
   }
@@ -163,14 +164,14 @@ export function formatAsLlmPrompt(result: ValidationRunResult): string {
 export function formatSingleValidatorAsLlmPrompt(v: ValidatorResult): string {
   const totalIssues = v.errors.length + v.warnings.length;
   const persona = getPersona([v.name]);
-  const hasSeoIntent = v.name === "seo-intent";
+  const hasSeoContext = v.name === "seo-intent" || v.name === "seo-cluster";
 
   const sections: string[] = [
     persona,
     REPO_CONTEXT,
   ];
 
-  if (hasSeoIntent) {
+  if (hasSeoContext) {
     const seoBlock = buildSeoContextBlock();
     if (seoBlock) sections.push(seoBlock);
   }

@@ -22,8 +22,10 @@ function mkdirIfMissing(dirPath: string): void {
 }
 
 /**
- * Create the minimum site folder structure required by check-sites / dev startup.
+ * Create the minimum site folder structure required by check-sites / Site Manager.
  * Skips files and directories that already exist.
+ * Pages use folder layout: pages/{slug}/en.yml (ContentIndex indexes directories only).
+ * Does not create component-registry/ (new sites inherit via inherit_components_from).
  */
 export function ensureSiteScaffold(options: SiteScaffoldOptions): void {
   const { contentFolder, displayName, includeSampleContent = true } = options;
@@ -38,12 +40,62 @@ export function ensureSiteScaffold(options: SiteScaffoldOptions): void {
 
   writeIfMissing(
     path.join(folderPath, "settings.yml"),
-    `# Site settings for ${contentFolder}\ni18n:\n  defaultLocale: en\n  locales:\n    - en\n`,
+    `# Site settings for ${contentFolder}
+i18n:
+  defaultLocale: en
+  locales:
+    - en
+home_page:
+  type: page
+  slug: home
+`,
   );
+
+  const pageTypeBlock = `page:
+  directory: pages
+  field_mapping:
+    title: title
+    _slug: slug
+    _locale: locale
+    _hreflangs: ''
+    _updated_at: ''
+    _image: ''
+    published_at: published_at
+  url_pattern:
+    en: /en/:slug
+  layout:
+    menu:
+      top: main-navbar
+      bottom: main-footer
+`;
+
+  const blogTypeBlock = includeSampleContent
+    ? `
+blog:
+  directory: blog
+  single_template: true
+  field_mapping:
+    title: title
+    excerpt: excerpt
+    body: body
+    published_at: published_at
+    _slug: slug
+    _locale: locale
+    _hreflangs: ''
+    _updated_at: ''
+    _image: ''
+  url_pattern:
+    en: /en/blog/:slug
+  layout:
+    menu:
+      top: main-navbar
+      bottom: main-footer
+`
+    : "";
 
   writeIfMissing(
     path.join(folderPath, "content-types.yml"),
-    `# Content types for ${contentFolder}\npage:\n  directory: pages\n  url_pattern:\n    en: /en/:slug\n  layout:\n    menu:\n      top: main-navbar\n      bottom: main-footer\n`,
+    `# Content types for ${contentFolder}\n${pageTypeBlock}${blogTypeBlock}`,
   );
 
   writeIfMissing(
@@ -58,9 +110,13 @@ export function ensureSiteScaffold(options: SiteScaffoldOptions): void {
     `brand.title:\n  default: "${displayName}"\nbrand.logo:\n  default: ""\nbrand.logo_dark:\n  default: ""\n`,
   );
 
+  const navbarExtra = includeSampleContent
+    ? `    - label: Blog\n      href: /en/blog/sample-post\n`
+    : "";
+
   writeIfMissing(
     path.join(folderPath, "menus", "main-navbar.yml"),
-    `navbar:\n  items:\n    - label: Logo\n      href: /en\n      component: Logo\n      imageId: "{{ brand.logo }}"\n      imageIdDark: "{{ brand.logo_dark }}"\n    - label: Home\n      href: /en\n    - label: About\n      href: /en/about\n    - label: Language\n      component: LanguageSwitcher\n`,
+    `navbar:\n  items:\n    - label: Logo\n      href: /en\n      component: Logo\n      imageId: "{{ brand.logo }}"\n      imageIdDark: "{{ brand.logo_dark }}"\n    - label: Home\n      href: /en\n    - label: About\n      href: /en/about\n${navbarExtra}    - label: Language\n      component: LanguageSwitcher\n`,
   );
 
   writeIfMissing(
@@ -68,27 +124,91 @@ export function ensureSiteScaffold(options: SiteScaffoldOptions): void {
     `footer:\n  columns: []\n  socials: []\n  copyright_text: "${displayName}. All rights reserved."\n`,
   );
 
+  // Home page (always)
+  const homeDir = path.join(folderPath, "pages", "home");
+  mkdirIfMissing(homeDir);
   writeIfMissing(
-    path.join(folderPath, "pages", "home.en.yml"),
-    `meta:\n  title: "Welcome to ${displayName}"\n  description: "Home page for ${displayName}"\nsections:\n  - type: hero_single_column\n    title: "Welcome to ${displayName}"\n    subtitle: "Your new site is ready. Start editing this page to get started."\n    button_label: Get Started\n    button_url: /en/about\n`,
+    path.join(homeDir, "_common.yml"),
+    `slug: home\ntitle: "Welcome to ${displayName}"\npublished_at: ${new Date().toISOString()}\n`,
+  );
+  writeIfMissing(
+    path.join(homeDir, "en.yml"),
+    `slug: home
+meta:
+  page_title: "Welcome to ${displayName}"
+  description: "Home page for ${displayName}"
+  redirects:
+    - /en/home
+sections:
+  - type: hero
+    version: "1.0"
+    variant: singleColumn
+    title: "Welcome to ${displayName}"
+    subtitle: "Your new site is ready. Start editing this page to get started."
+    cta_buttons:
+      - text: Get Started
+        url: /en/about
+        variant: primary
+`,
   );
 
   if (includeSampleContent) {
+    const aboutDir = path.join(folderPath, "pages", "about");
+    mkdirIfMissing(aboutDir);
     writeIfMissing(
-      path.join(folderPath, "pages", "about.en.yml"),
-      `meta:\n  title: "About - ${displayName}"\n  description: "Learn more about ${displayName}"\nsections:\n  - type: two_column_text\n    title: "About Us"\n    left_body: |\n      We are a team passionate about building great products.\n      This is the about page for ${displayName}.\n    right_body: |\n      Feel free to edit this page with your own content.\n      Replace images, update the text, and make it yours.\n`,
+      path.join(aboutDir, "_common.yml"),
+      `slug: about\ntitle: "About - ${displayName}"\npublished_at: ${new Date().toISOString()}\n`,
+    );
+    writeIfMissing(
+      path.join(aboutDir, "en.yml"),
+      `slug: about
+meta:
+  page_title: "About - ${displayName}"
+  description: "Learn more about ${displayName}"
+sections:
+  - type: text_block
+    version: "1.0"
+    heading: "About Us"
+    body: |
+      We are a team passionate about building great products.
+      This is the about page for **${displayName}**.
+
+      Feel free to edit this page with your own content.
+`,
     );
 
     mkdirIfMissing(path.join(folderPath, "blog"));
 
     writeIfMissing(
       path.join(folderPath, "blog", "_common.single.yml"),
-      `sections:\n  - type: hero_single_column\n    title: "{{ single.title }}"\n    subtitle: "{{ single.excerpt }}"\n  - type: markdown_body\n    body: "{{ single.body }}"\n`,
+      `slug: "{{ single.slug }}"\ntitle: "{{ single.title }}"\nmeta:\n  robots: index, follow\n`,
     );
 
     writeIfMissing(
-      path.join(folderPath, "blog", "sample-post.en.yml"),
-      `title: "Sample Blog Post"\nexcerpt: "This is a sample blog post to get you started."\nbody: |\n  ## Hello World\n\n  This is a sample blog post for **${displayName}**. You can edit or delete this file\n  and create your own posts in this folder.\n`,
+      path.join(folderPath, "blog", "single.en.yml"),
+      `meta:
+  page_title: "{{ single.title }}"
+  description: "{{ single.excerpt }}"
+sections:
+  - type: text_block
+    version: "1.0"
+    heading: "{{ single.title }}"
+    body: "{{ single.excerpt }}"
+  - type: article
+    version: "1.0"
+    content: "{{ single.body }}"
+`,
+    );
+
+    const postDir = path.join(folderPath, "blog", "sample-post");
+    mkdirIfMissing(postDir);
+    writeIfMissing(
+      path.join(postDir, "_common.yml"),
+      `slug: sample-post\ntitle: "Sample Blog Post"\nexcerpt: "This is a sample blog post to get you started."\nbody: |\n  ## Hello World\n\n  This is a sample blog post for **${displayName}**. You can edit or delete this entry\n  and create your own posts.\npublished_at: ${new Date().toISOString()}\n`,
+    );
+    writeIfMissing(
+      path.join(postDir, "en.yml"),
+      `slug: sample-post\nmeta:\n  page_title: "Sample Blog Post"\n  description: "This is a sample blog post to get you started."\nsections: []\n`,
     );
   }
 }

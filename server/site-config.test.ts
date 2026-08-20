@@ -92,6 +92,61 @@ b.example.com:
     expect(configs[1].fallbackContentFolder).toBe("site_a");
   });
 
+  it("parses inherit_components_from when parent exists", () => {
+    fs.mkdirSync(path.join(tempDir, "site_a"), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, "site_b"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempDir, "sites.yml"),
+      `a.example.com:
+  content_folder: site_a
+b.example.com:
+  content_folder: site_b
+  inherit_components_from: site_a
+`,
+      "utf-8",
+    );
+    resetSiteConfigs();
+    const configs = getSiteConfigs();
+    expect(configs[1].inheritComponentsFrom).toBe("site_a");
+  });
+
+  it("rejects inherit when parent also inherits", () => {
+    fs.mkdirSync(path.join(tempDir, "site_a"), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, "site_b"), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, "site_c"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempDir, "sites.yml"),
+      `a.example.com:
+  content_folder: site_a
+b.example.com:
+  content_folder: site_b
+  inherit_components_from: site_a
+c.example.com:
+  content_folder: site_c
+  inherit_components_from: site_b
+`,
+      "utf-8",
+    );
+    resetSiteConfigs();
+    expect(() => getSiteConfigs()).toThrow(/one hop only/);
+  });
+
+  it("rejects inherit when parent folder is missing on disk", () => {
+    fs.mkdirSync(path.join(tempDir, "site_b"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempDir, "sites.yml"),
+      `a.example.com:
+  content_folder: site_a
+b.example.com:
+  content_folder: site_b
+  inherit_components_from: site_a
+`,
+      "utf-8",
+    );
+    resetSiteConfigs();
+    expect(() => getSiteConfigs()).toThrow(/parent folder missing on disk/);
+  });
+
   it("formatSitesYmlRequiredError includes reason and example", () => {
     const msg = formatSitesYmlRequiredError("test reason");
     expect(msg).toContain("test reason");

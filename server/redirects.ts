@@ -13,7 +13,7 @@ import { child } from "./logger";
 import { applyRedirectTraceCookie } from "./redirect-trace-cookie";
 import type { RedirectTraceMatchType } from "@shared/redirect-trace";
 import { localePrefixFromPath } from "@shared/runtime-issues";
-import { STATIC_ROUTES } from "../scripts/validation/shared/canonicalUrls";
+import { isLocaleHomeAlias } from "@shared/public-app-routes";
 const log = child({ module: "redirects" });
 
 // ============================================================================
@@ -758,7 +758,7 @@ export interface RedirectInspectResult {
   winner: RedirectTestResult;
   conflicts: RedirectInspectConflict[];
   fixes: RedirectInspectFix[];
-  /** Validator STATIC_ROUTES + content-index known URLs (e.g. homepage /us). */
+  /** Content-index known URLs only; locale-home aliases (`/`, `/en`, `/es`, `/us`) are never live. */
   live_content: boolean;
 }
 
@@ -766,14 +766,17 @@ export function isCustomRedirectSource(source: string | undefined): boolean {
   return /(?:^|\/)custom-redirects\.yml$/.test(source || "");
 }
 
-/** Live content URL for overwrite checks: validator STATIC_ROUTES plus content-index known URLs. */
+/**
+ * Live content URL for overwrite checks: content-index known URLs only.
+ * Locale-home aliases always return false (they must 301 to canonical homes).
+ */
 export function isLiveContentUrl(
   rawPath: string,
   ci: typeof contentIndex = contentIndex,
 ): boolean {
   const urlPath = toPublicUrlPath(rawPath);
   const normalized = normalizePath(urlPath);
-  if (STATIC_ROUTES.includes(normalized)) return true;
+  if (isLocaleHomeAlias(normalized) || isLocaleHomeAlias(urlPath)) return false;
   return ci.isKnownUrl(urlPath) || ci.isKnownUrl(normalized);
 }
 
@@ -903,7 +906,7 @@ function buildInspectFixes(
         file: winner.source,
         from: winnerFrom,
         effect:
-          "Keep the 301. The validator will keep reporting REDIRECT_OVERWRITES_CONTENT until STATIC_ROUTES / live routing changes (app code, not CMS).",
+          "Keep the 301. Locale-home aliases (/ , /en, /es, /us) are not live content; other paths stay flagged until the content index no longer lists them.",
         requires_confirmation: true,
         args_hint: {
           tool: "update_redirect",

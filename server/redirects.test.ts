@@ -259,12 +259,12 @@ describe("isLivePublicUrl matches Test a URL", () => {
 });
 
 describe("inspectRedirect", () => {
-  it("reports /us winner from homepage en.yml plus overwrites_content", () => {
+  it("reports /us winner from homepage en.yml without overwrites_content (locale-home alias)", () => {
     const ci = makeCi({
       redirects: [
         {
           from: "/us",
-          to: "/en",
+          to: "/en/home",
           type: "page",
           source: "site_4geeks-com/pages/home/en.yml",
           status: 301,
@@ -276,10 +276,47 @@ describe("inspectRedirect", () => {
     expect(result.winner.match).toBe(true);
     expect(result.winner.from).toBe("/us");
     expect(result.winner.source).toBe("site_4geeks-com/pages/home/en.yml");
+    expect(result.live_content).toBe(false);
+    expect(result.conflicts.some((c) => c.kind === "overwrites_content")).toBe(false);
+  });
+
+  it("reports /en winner without overwrites_content (locale-home alias)", () => {
+    const ci = makeCi({
+      redirects: [
+        {
+          from: "/en",
+          to: "/en/home",
+          type: "page",
+          source: "site_4geeks-com/pages/home/en.yml",
+          status: 301,
+          priority: "before",
+        },
+      ],
+    });
+    const result = inspectRedirect("/en", "en", ci);
+    expect(result.winner.match).toBe(true);
+    expect(result.live_content).toBe(false);
+    expect(result.conflicts.some((c) => c.kind === "overwrites_content")).toBe(false);
+  });
+
+  it("flags overwrites_content when redirect source is a known content URL", () => {
+    const ci = makeCi({
+      knownSlugs: { apply: { en: "/en/apply" } },
+      redirects: [
+        {
+          from: "/en/apply",
+          to: "/en/home",
+          type: "page",
+          source: "site_4geeks-com/pages/home/en.yml",
+          status: 301,
+          priority: "before",
+        },
+      ],
+    });
+    const result = inspectRedirect("/en/apply", "en", ci);
+    expect(result.winner.match).toBe(true);
     expect(result.live_content).toBe(true);
     expect(result.conflicts.some((c) => c.kind === "overwrites_content")).toBe(true);
-    expect(result.fixes.filter((f) => f.kind === "overwrites_content")).toHaveLength(2);
-    expect(result.fixes.every((f) => f.args_hint.tool === "update_redirect" || Object.keys(f.args_hint).length === 0)).toBe(true);
   });
 
   it("matches /us/foo with custom /us/(.*)", () => {

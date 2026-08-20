@@ -71,13 +71,13 @@ export {
   type CardItem,
   type StatItem,
   type LogoItem,
-} from "../site_4geeks-com/component-registry/_common/schema";
+} from "./component-registry/_common/schema";
 
 // Alias for backward compatibility
-export { leadFormDataSchema as productShowcaseFormSchema } from "../site_4geeks-com/component-registry/_common/schema";
+export { leadFormDataSchema as productShowcaseFormSchema } from "./component-registry/_common/schema";
 
 // Local binding for use within this file
-import { ctaButtonSchema as commonCtaButtonSchema } from "../site_4geeks-com/component-registry/_common/schema";
+import { ctaButtonSchema as commonCtaButtonSchema } from "./component-registry/_common/schema";
 
 // ============================================
 // Re-export Hero Schemas from Component Registry
@@ -118,7 +118,7 @@ export {
   type HeroOrbitBadge,
   type HeroOrbitDiagram,
   type HeroOrbit,
-} from "../site_4geeks-com/component-registry/hero/v1.0/schema";
+} from "./component-registry/hero/v1.0/schema";
 
 // Variant types for type narrowing (schemas are internal to component registry)
 export type {
@@ -131,7 +131,7 @@ export type {
   HeroCourse,
   HeroApplyFormProductShowcase,
   HeroExercise,
-} from "../site_4geeks-com/component-registry/hero/v1.0/schema";
+} from "./component-registry/hero/v1.0/schema";
 
 // HeroCredibility is already exported via the re-export block above
 
@@ -457,8 +457,8 @@ export {
 
 // Type alias for backward compatibility
 export type CTABannerSection = import("../site_4geeks-com/component-registry/cta_banner/v1.0/schema").CtaBannerSection;
-export type CTAButton = import("../site_4geeks-com/component-registry/_common/schema").CtaButton;
-export type LeadFormFieldConfig = z.infer<typeof import("../site_4geeks-com/component-registry/_common/schema").leadFormFieldConfigSchema>;
+export type CTAButton = import("./component-registry/_common/schema").CtaButton;
+export type LeadFormFieldConfig = z.infer<typeof import("./component-registry/_common/schema").leadFormFieldConfigSchema>;
 
 // ============================================
 // Re-export Project Showcase Schemas from Component Registry
@@ -736,8 +736,8 @@ export const humanAndAIDuoBulletGroupSchema = z.object({
 });
 
 // Image with CSS styling properties - reuse from common schema
-export { imageWithStyleSchema } from "../site_4geeks-com/component-registry/_common/schema";
-export type ImageWithStyle = import("../site_4geeks-com/component-registry/_common/schema").ImageWithStyle;
+export { imageWithStyleSchema } from "./component-registry/_common/schema";
+export type ImageWithStyle = import("./component-registry/_common/schema").ImageWithStyle;
 
 export const humanAndAIDuoSectionSchema = z.object({
   type: z.literal("human_and_ai_duo"),
@@ -840,7 +840,7 @@ export { twoColumnAccordionCardSectionSchema, twoColumnAccordionCardBulletSchema
 // Section Schema Union
 // Import unified section schemas for use in union
 // ============================================
-import { heroSectionSchema as heroSchema } from "../site_4geeks-com/component-registry/hero/v1.0/schema";
+import { heroSectionSchema as heroSchema } from "./component-registry/hero/v1.0/schema";
 import { aiLearningSectionSchema } from "../site_4geeks-com/component-registry/ai_learning/v1.0/schema";
 import { mentorshipSectionSchema } from "../site_4geeks-com/component-registry/mentorship/v1.0/schema";
 import { certificateSectionSchema } from "../site_4geeks-com/component-registry/certificate/v1.0/schema";
@@ -871,7 +871,7 @@ import { splitCardsSectionSchema } from "../site_4geeks-com/component-registry/s
 export { graduatesStatsSectionSchema, graduatesFeaturedImageSchema, type GraduatesStatsSection, type GraduatesStatItem, type GraduatesCollageImage, type GraduatesFeaturedImage, type GraduatesStatsAsymmetric };
 import { applyFormSectionSchema } from "../site_4geeks-com/component-registry/apply_form/v1.0/schema";
 import { awardBadgesSectionSchema } from "../site_4geeks-com/component-registry/award_badges/v1.0/schema";
-import { awardsMarqueeSectionSchema, type AwardsMarqueeSection, type AwardsMarqueeItem } from "../site_4geeks-com/component-registry/awards_marquee/v1.0/schema";
+import { awardsMarqueeSectionSchema, type AwardsMarqueeSection, type AwardsMarqueeItem } from "./component-registry/awards_marquee/v1.0/schema";
 export { awardsMarqueeSectionSchema, type AwardsMarqueeSection, type AwardsMarqueeItem };
 import { listPressMentionsSectionSchema, type ListPressMentionsSection, type PressMentionItem, pressMentionsSectionSchema, type PressMentionsSection } from "../site_4geeks-com/component-registry/list_press_mentions/v1.0/schema";
 export { listPressMentionsSectionSchema, type ListPressMentionsSection, type PressMentionItem };

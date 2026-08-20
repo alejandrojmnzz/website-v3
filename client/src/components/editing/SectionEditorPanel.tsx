@@ -8127,7 +8127,7 @@ export function SectionEditorPanel({
                   <li>shared/component-behaviors.ts</li>
                   <li>client/src/lib/tracking.ts</li>
                   <li>docs/component-behaviors.md</li>
-                  <li>site_4geeks-com/component-registry/hero/v1.0/field-editors.ts</li>
+                  <li>shared/component-registry/hero/v1.0/field-editors.ts</li>
                 </ul>
               </details>
             </div>

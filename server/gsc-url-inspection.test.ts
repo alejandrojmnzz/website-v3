@@ -32,6 +32,7 @@ import {
   upsertRecord,
   loadGscInspectionStoreFromBucket,
   forceUploadGscInspectionToBucket,
+  pullGscInspectionStoreFromBucket,
   isStale,
   STALE_MS,
 } from "./gsc-url-inspection";
@@ -398,6 +399,40 @@ describe("gsc-url-inspection", () => {
     expect(getRecord("site_demo", loc)?.verdict).toBe("PASS");
     expect(fs.existsSync(sidecarPath("site_demo"))).toBe(true);
     expect(uploads).toEqual([]);
+  });
+
+  it("skips GCS in development unless forceFromGcs is set", async () => {
+    const loc = "https://example.com/us/blog/foo";
+    const payload = {
+      records: { [loc]: { inspectedAt: "2026-08-01T00:00:00.000Z", verdict: "PASS" } },
+    };
+    let downloads = 0;
+    setGscGcsSyncForTests({
+      production: false,
+      gcs: {
+        available: true,
+        initBootstrapFromEnv: () => {},
+        downloadFirstExisting: async () => {
+          downloads += 1;
+          return {
+            key: "site_demo/sync/gsc-url-inspection.json",
+            data: Buffer.from(JSON.stringify(payload), "utf-8"),
+          };
+        },
+        debouncedUpload: () => {},
+        upload: async () => {},
+      },
+    });
+
+    expect(await loadGscInspectionStoreFromBucket("site_demo")).toBe("empty");
+    expect(downloads).toBe(0);
+
+    const pulled = await pullGscInspectionStoreFromBucket("site_demo");
+    expect(pulled.source).toBe("gcs");
+    expect(pulled.recordCount).toBe(1);
+    expect(pulled.gcsKey).toBe("site_demo/sync/gsc-url-inspection.json");
+    expect(downloads).toBe(1);
+    expect(getRecord("site_demo", loc)?.verdict).toBe("PASS");
   });
 
   it("starts empty when the GCS sidecar is missing or invalid", async () => {

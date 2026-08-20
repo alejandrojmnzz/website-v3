@@ -1,6 +1,6 @@
 import * as path from "path";
 import { createScreenshotCacheStore, safeScreenshotKey } from "./screenshot-cache";
-import { getDefaultContentFolder } from "./site-config";
+import { getDefaultContentFolder, getInheritComponentsFrom } from "./site-config";
 import { resolveComponentPath, type RegistryOrigin } from "../shared/registry-resolve";
 import { child } from "./logger";
 
@@ -54,7 +54,13 @@ function sharedScreenshotsDir(componentType: string): string {
 
 function storeFor(componentType: string, contentFolder?: string) {
   const folder = contentFolder || getDefaultContentFolder();
-  const resolved = resolveComponentPath(componentType, folder);
+  const resolved = resolveComponentPath(
+    componentType,
+    folder,
+    process.cwd(),
+    getInheritComponentsFrom(folder),
+  );
+
   if (!resolved) {
     // Fallback: treat as site cache (legacy captures / unknown types)
     return {

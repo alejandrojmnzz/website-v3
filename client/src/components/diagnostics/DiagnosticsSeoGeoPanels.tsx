@@ -42,7 +42,6 @@ interface SeoOverview {
     locale: string;
     reason: "hub_not_found" | "hub_not_pillar";
   }>;
-  indexWarnings?: Array<{ code: string; entry?: string; message?: string }>;
   featureCoverage: Record<string, number>;
   faqCoverage: { slug: string; contentType: string; locale: string; faqCount: number }[];
   schemaCoverage: Record<string, number>;

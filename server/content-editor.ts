@@ -414,7 +414,8 @@ function applyOperation(
       if (operation.path === "sections" && itemToInsert && typeof itemToInsert === "object") {
         const raw = itemToInsert as Record<string, unknown>;
         const sectionType = String(raw.type ?? "");
-        const editors = loadAllFieldEditors()[sectionType] ?? {};
+        const editors =
+          loadAllFieldEditors(opts?.contentRoot)[sectionType] ?? {};
         const { section: wiped, cleared } = wipeSectionOnDuplicate(raw, editors);
         wiped.section_id = generateSectionId((wiped.type as string) || "section");
         if (!wiped.paddingY) {
@@ -3138,7 +3139,7 @@ export async function createContentEntry(
           }
         }
 
-        const fieldEditorsByType = loadAllFieldEditors();
+        const fieldEditorsByType = loadAllFieldEditors(rootName);
         const clearedFields: ClearedField[] = [];
         for (const { file, parsed } of parsedDupFiles) {
           clearedFields.push(

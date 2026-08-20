@@ -780,6 +780,10 @@ export default function PrivateRedirects() {
                 <code className="text-[11px]">meta.redirects</code> (destination locale file) and{" "}
                 <code className="text-[11px]">custom-redirects.yml</code>. Runtime has one{" "}
                 <strong className="text-foreground font-medium">first-match winner</strong>; other matching rules show as conflicts below.
+                Each locale has <strong className="text-foreground font-medium">one canonical homepage</strong>{" "}
+                (e.g. <code className="text-[11px]">/en/home</code>, <code className="text-[11px]">/es/inicio</code>);
+                bare <code className="text-[11px]">/</code>, <code className="text-[11px]">/en</code>,{" "}
+                <code className="text-[11px]">/es</code>, and <code className="text-[11px]">/us</code> are aliases that may 301 there without an overwrite warning.
               </p>
               <button
                 type="button"
@@ -799,9 +803,12 @@ export default function PrivateRedirects() {
                     Catch-alls / external dests: <code>site_&lt;name&gt;/custom-redirects.yml</code>
                   </li>
                   <li>
-                    Live URL set for overwrite warnings: validator{" "}
-                    <code>STATIC_ROUTES</code> in{" "}
-                    <code>scripts/validation/shared/canonicalUrls.ts</code> (includes <code>/us</code>) plus content-index URLs
+                    Overwrite warnings use <code>contentIndex.isKnownUrl</code> only (not the SEO sitemap).
+                    Locale-home aliases are listed in <code>shared/public-app-routes.ts</code> (
+                    <code>LOCALE_HOME_ALIASES</code>) and never count as live content.
+                  </li>
+                  <li>
+                    After shipping routing changes, re-run site validation / clear diagnostics cache if old overwrite errors linger.
                   </li>
                 </ul>
               )}
@@ -880,8 +887,10 @@ export default function PrivateRedirects() {
                         className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive dark:text-red-300"
                         data-testid="banner-redirect-overwrites-content"
                       >
-                        This path is both a redirect and a live URL (validator STATIC_ROUTES plus content pages, including{" "}
-                        <code>/us</code>). First-match still 301s visitors away from the live page.
+                        This path is both a redirect and a live content URL (
+                        <code>contentIndex.isKnownUrl</code>). Locale-home aliases (
+                        <code>/</code>, <code>/en</code>, <code>/es</code>, <code>/us</code>) do not trigger this —
+                        they should 301 to the canonical homepage. First-match still 301s visitors away from the live page.
                       </div>
                     )}
                     <div className="space-y-1.5">

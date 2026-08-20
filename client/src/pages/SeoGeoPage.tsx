@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Crosshair, ExternalLink, FileText, Globe, Info, Loader2, MoreVertical, Network, Plus, Star, Unlink } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Bot, BotOff, Brain, Check, ChevronDown, Crosshair, DownloadCloud, ExternalLink, FileText, Globe, Info, Loader2, MoreVertical, Network, Plus, Star, Unlink } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -223,6 +231,8 @@ type ClusterDiagnosticsResult = {
 
 function invalidateClusterQueries(hubId?: string) {
   void queryClient.invalidateQueries({ queryKey: ["/api/seo/overview"] });
+  void queryClient.invalidateQueries({ queryKey: ["/api/seo/cluster-entries"] });
+  void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-issues", "seo-cluster"] });
   if (hubId) {
     void queryClient.invalidateQueries({ queryKey: ["/api/seo/cluster-diagnostics", hubId] });
   }
@@ -255,25 +265,35 @@ type BrokenClusterRefRow = {
   reason: "hub_not_found" | "hub_not_pillar";
 };
 
-type SeoIndexWarningRow = {
+type SeoClusterIssueRow = {
   code: string;
-  entry?: string;
-  pillar_path?: string;
+  entryKey?: string;
   message?: string;
+  suggestion?: string;
+  severity?: "error" | "warning";
+  file?: string;
 };
 
-const SEO_INDEX_WARNING_HELP: Record<string, { title: string; body: string }> = {
-  duplicate_pillar: {
+const SEO_CLUSTER_ISSUE_HELP: Record<string, { title: string; body: string }> = {
+  DUPLICATE_PILLAR: {
     title: "Duplicate hub path",
     body: "Two pages are marked as pillars for the same URL. Only one hub can own a path — fix is_pillar / pillar_path so hubs do not collide.",
   },
-  pillar_not_live: {
-    title: "Pillar path not live",
-    body: "This page points at a pillar_path that does not resolve to a live canonical URL in the content index. Fix the path or publish the hub.",
+  SEO_BLOCK_ON_COMMON_YML: {
+    title: "SEO block on _common.yml",
+    body: "Shared _common.yml must not define seo:. Move seo.* to the locale YAML (en.yml / es.yml).",
   },
-  seo_on_common: {
-    title: "SEO on _common.yml",
-    body: "seo.* must live on the locale YAML (en.yml / es.yml), not _common.yml. Move or remove the seo: block from _common.yml.",
+  INVALID_PILLAR: {
+    title: "Pillar path not live or not a hub",
+    body: "This page points at a pillar_path that does not resolve to a live pillar hub. Fix the path or mark the hub as is_pillar.",
+  },
+  ORPHAN_PAGE: {
+    title: "Unclustered page",
+    body: "This page has no seo.pillar_path and belongs to no cluster. Set a hub URL or pillar_path: null to opt out.",
+  },
+  PARTIALLY_SET_CLUSTER: {
+    title: "Partially set cluster",
+    body: "This page has a main keyword but no pillar_path. Link it to a hub or opt out.",
   },
 };
 
@@ -294,13 +314,41 @@ const CLUSTER_STAT_HELP = {
   },
   emptyHubs: {
     title: "Empty hubs",
-    body: "These are hub pages with no pages linked to them yet. A hub should gather related pages under one topic.",
+    body: "These are pillar pages with no members linked to them yet. A hub should gather related pages under one topic.",
   },
   clustered: {
     title: "Clustered",
     body: "These pages are linked to a hub page and belong to a topic group. This is the healthy state.",
   },
 } as const satisfies Record<string, StatHelp>;
+
+type ClusterFilterBucket =
+  | "unclustered"
+  | "partiallySet"
+  | "brokenRefs"
+  | "emptyHubs"
+  | "clustered";
+
+type ClusterBucketEntryRow = {
+  id: string;
+  slug: string;
+  contentType: string;
+  locale: string;
+  path: string;
+  main_keyword: string | null;
+  file: string;
+  reason?: "hub_not_found" | "hub_not_pillar";
+  pillar_path?: string | null;
+};
+
+type ClusterBucketEntriesResponse = {
+  items: ClusterBucketEntryRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+const CLUSTER_BUCKET_PAGE_SIZE = 25;
 
 const GSC_STAT_HELP = {
   inSitemap: {
@@ -364,75 +412,330 @@ function StatHelpBadge({
   );
 }
 
-function ClusterHealthPanel({ health }: { health: ClusterHealth }) {
+function ClusterHealthPanel({
+  health,
+  clusters,
+  onEditSeo,
+}: {
+  health: ClusterHealth;
+  clusters: {
+    pillarUrl: string;
+    hubId?: string;
+    keyword?: string | null;
+    locale?: string;
+  }[];
+  onEditSeo: (contentType: string, slug: string, locale: string) => void;
+}) {
   const { stats } = health;
+  const [activeBucket, setActiveBucket] = useState<ClusterFilterBucket | null>(null);
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedQ(searchInput.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [searchInput]);
+
+  useEffect(() => {
+    setSearchInput("");
+    setDebouncedQ("");
+    setPage(1);
+  }, [activeBucket]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQ]);
+
+  const { data: entries, isLoading: entriesLoading, isFetching } = useQuery<ClusterBucketEntriesResponse>({
+    queryKey: ["/api/seo/cluster-entries", activeBucket, debouncedQ, page],
+    enabled: activeBucket != null,
+    queryFn: async () => {
+      const token = getDebugToken();
+      const params = new URLSearchParams({
+        bucket: activeBucket!,
+        page: String(page),
+        pageSize: String(CLUSTER_BUCKET_PAGE_SIZE),
+      });
+      if (debouncedQ) params.set("q", debouncedQ);
+      const res = await fetch(`/api/seo/cluster-entries?${params}`, {
+        credentials: "include",
+        headers: {
+          ...getSessionHeaders(),
+          ...(token ? { Authorization: `Token ${token}` } : {}),
+        },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(typeof body.error === "string" ? body.error : "Failed to load entries");
+      }
+      return res.json() as Promise<ClusterBucketEntriesResponse>;
+    },
+  });
+
+  const filters: {
+    bucket: ClusterFilterBucket;
+    label: string;
+    count: number;
+    variant: "secondary" | "destructive" | "outline";
+    testId: string;
+  }[] = [
+    {
+      bucket: "unclustered",
+      label: "Unclustered",
+      count: stats.unclustered,
+      variant: "secondary",
+      testId: "stat-unclustered",
+    },
+    {
+      bucket: "partiallySet",
+      label: "Partially set",
+      count: stats.partiallySet,
+      variant: "secondary",
+      testId: "stat-partially-set",
+    },
+    {
+      bucket: "brokenRefs",
+      label: "Broken refs",
+      count: stats.brokenRefs,
+      variant: stats.brokenRefs > 0 ? "destructive" : "secondary",
+      testId: "stat-broken-refs",
+    },
+    {
+      bucket: "emptyHubs",
+      label: "Empty hubs",
+      count: health.emptyHubCount,
+      variant: "outline",
+      testId: "stat-empty-hubs",
+    },
+    {
+      bucket: "clustered",
+      label: "Clustered",
+      count: stats.clustered,
+      variant: "outline",
+      testId: "stat-clustered",
+    },
+  ];
+
+  const help = activeBucket ? CLUSTER_STAT_HELP[activeBucket] : null;
+  const total = entries?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / (entries?.pageSize ?? CLUSTER_BUCKET_PAGE_SIZE)));
+  const showAssign =
+    activeBucket === "unclustered" ||
+    activeBucket === "partiallySet" ||
+    activeBucket === "brokenRefs";
+
   return (
     <div className="mb-4 space-y-3" data-testid="cluster-health-stats">
-      <div className="flex flex-wrap gap-2">
-        <StatHelpBadge
-          label="Unclustered"
-          count={stats.unclustered}
-          help={CLUSTER_STAT_HELP.unclustered}
-          variant="secondary"
-          testId="stat-unclustered"
-        />
-        <StatHelpBadge
-          label="Partially set"
-          count={stats.partiallySet}
-          help={CLUSTER_STAT_HELP.partiallySet}
-          variant="secondary"
-          testId="stat-partially-set"
-        />
-        <StatHelpBadge
-          label="Broken refs"
-          count={stats.brokenRefs}
-          help={CLUSTER_STAT_HELP.brokenRefs}
-          variant={stats.brokenRefs > 0 ? "destructive" : "secondary"}
-          testId="stat-broken-refs"
-        />
-        <StatHelpBadge
-          label="Empty hubs"
-          count={health.emptyHubCount}
-          help={CLUSTER_STAT_HELP.emptyHubs}
-          variant="outline"
-          testId="stat-empty-hubs"
-        />
-        <StatHelpBadge
-          label="Clustered"
-          count={stats.clustered}
-          help={CLUSTER_STAT_HELP.clustered}
-          variant="outline"
-          testId="stat-clustered"
-        />
+      <div className="flex flex-wrap gap-2" role="toolbar" aria-label="Cluster health filters">
+        {filters.map((f) => {
+          const pressed = activeBucket === f.bucket;
+          return (
+            <Badge
+              key={f.bucket}
+              variant={f.variant}
+              className={cn(
+                "tabular-nums cursor-pointer",
+                pressed && "ring-2 ring-ring ring-offset-2 ring-offset-background",
+              )}
+              data-testid={f.testId}
+              role="button"
+              tabIndex={0}
+              aria-pressed={pressed}
+              aria-label={`${f.label} ${f.count}. ${pressed ? "Selected. Click to show summary." : "Click to list matching pages."}`}
+              onClick={() => setActiveBucket((cur) => (cur === f.bucket ? null : f.bucket))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setActiveBucket((cur) => (cur === f.bucket ? null : f.bucket));
+                }
+              }}
+            >
+              {f.label} {f.count}
+            </Badge>
+          );
+        })}
       </div>
-      {Object.keys(health.byContentType).length > 0 ? (
-        <div className="overflow-x-auto">
-          <table className="w-full text-[11px]">
-            <thead>
-              <tr className="text-muted-foreground border-b">
-                <th className="text-left py-1 pr-2 font-medium">Type</th>
-                <th className="text-right py-1 px-1">Uncl.</th>
-                <th className="text-right py-1 px-1">Partial</th>
-                <th className="text-right py-1 px-1">Broken</th>
-                <th className="text-right py-1 pl-1">Clustered</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(health.byContentType)
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([ct, row]) => (
-                  <tr key={ct} className="border-b border-border/50" data-testid={`cluster-health-type-${ct}`}>
-                    <td className="py-1 pr-2 capitalize">{ct}</td>
-                    <td className="text-right py-1 px-1 tabular-nums">{row.unclustered}</td>
-                    <td className="text-right py-1 px-1 tabular-nums">{row.partiallySet}</td>
-                    <td className="text-right py-1 px-1 tabular-nums">{row.brokenRefs}</td>
-                    <td className="text-right py-1 pl-1 tabular-nums">{row.clustered + row.hub}</td>
-                  </tr>
+
+      {activeBucket == null ? (
+        Object.keys(health.byContentType).length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="text-muted-foreground border-b">
+                  <th className="text-left py-1 pr-2 font-medium">Type</th>
+                  <th className="text-right py-1 px-1">Uncl.</th>
+                  <th className="text-right py-1 px-1">Partial</th>
+                  <th className="text-right py-1 px-1">Broken</th>
+                  <th className="text-right py-1 pl-1">Clustered</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(health.byContentType)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([ct, row]) => (
+                    <tr key={ct} className="border-b border-border/50" data-testid={`cluster-health-type-${ct}`}>
+                      <td className="py-1 pr-2 capitalize">{ct}</td>
+                      <td className="text-right py-1 px-1 tabular-nums">{row.unclustered}</td>
+                      <td className="text-right py-1 px-1 tabular-nums">{row.partiallySet}</td>
+                      <td className="text-right py-1 px-1 tabular-nums">{row.brokenRefs}</td>
+                      <td className="text-right py-1 pl-1 tabular-nums">{row.clustered + row.hub}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null
+      ) : (
+        <div className="space-y-3" data-testid="cluster-bucket-entries">
+          {help ? (
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 space-y-1">
+              <p className="text-sm font-medium text-foreground">{help.title}</p>
+              <p className="text-sm text-muted-foreground leading-snug">{help.body}</p>
+              <p className="text-[11px] text-muted-foreground pt-1">
+                Advanced: classification lives in{" "}
+                <code className="font-mono text-[10px]">server/seo-cluster-stats.ts</code> (
+                <code className="font-mono text-[10px]">classifyClusterEntry</code>,{" "}
+                <code className="font-mono text-[10px]">computeClusterHealth</code>).
+              </p>
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground tabular-nums">
+              {entriesLoading && !entries
+                ? "Loading…"
+                : `${total} page${total !== 1 ? "s" : ""}${isFetching ? " · updating…" : ""}`}
+            </p>
+            <Input
+              type="search"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search pages…"
+              className="h-8 max-w-xs text-xs"
+              data-testid="cluster-bucket-search"
+              aria-label="Search pages in this bucket"
+            />
+          </div>
+
+          {entriesLoading && !entries ? (
+            <div className="space-y-2">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+          ) : total === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center" data-testid="cluster-bucket-empty">
+              {debouncedQ
+                ? "No matches for this search. Try a different slug, path, or keyword."
+                : "No pages in this bucket right now."}
+            </p>
+          ) : (
+            <>
+              <ul className="divide-y divide-border rounded-md border border-border">
+                {(entries?.items ?? []).map((row) => (
+                  <li
+                    key={row.id}
+                    className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs"
+                    data-testid={`cluster-bucket-row-${row.id}`}
+                  >
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-mono text-foreground truncate">{row.slug}</span>
+                        <span className="text-muted-foreground">
+                          · {row.contentType} · {row.locale.toUpperCase()}
+                        </span>
+                      </div>
+                      {row.path ? (
+                        <p className="font-mono text-[11px] text-muted-foreground truncate" title={row.path}>
+                          {row.path}
+                        </p>
+                      ) : null}
+                      {row.main_keyword ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          Keyword: {row.main_keyword}
+                        </p>
+                      ) : null}
+                      {row.reason ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          {row.reason === "hub_not_pillar"
+                            ? "Target URL is live but not marked as a pillar hub."
+                            : "Target hub URL was not found."}
+                          {row.pillar_path ? (
+                            <>
+                              {" "}
+                              <code className="font-mono">{row.pillar_path}</code>
+                            </>
+                          ) : null}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        data-testid={`button-cluster-bucket-edit-seo-${row.slug}`}
+                        onClick={() => onEditSeo(row.contentType, row.slug, row.locale)}
+                      >
+                        Edit SEO
+                      </Button>
+                      {showAssign ? (
+                        <OrphanAssignButton
+                          orphan={{
+                            slug: row.slug,
+                            contentType: row.contentType,
+                            locale: row.locale,
+                          }}
+                          clusters={clusters as SeoOverview["clusters"]}
+                        />
+                      ) : null}
+                    </div>
+                  </li>
                 ))}
-            </tbody>
-          </table>
+              </ul>
+
+              {totalPages > 1 ? (
+                <div
+                  className="flex flex-wrap items-center justify-between gap-3"
+                  data-testid="cluster-bucket-pagination"
+                >
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    Page {page} of {totalPages}
+                  </span>
+                  <Pagination className="mx-0 w-auto justify-end">
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious
+                          href="#"
+                          aria-disabled={page <= 1}
+                          className={page <= 1 ? "pointer-events-none opacity-50" : undefined}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (page > 1) setPage((p) => p - 1);
+                          }}
+                        />
+                      </PaginationItem>
+                      <PaginationItem>
+                        <PaginationNext
+                          href="#"
+                          aria-disabled={page >= totalPages}
+                          className={page >= totalPages ? "pointer-events-none opacity-50" : undefined}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (page < totalPages) setPage((p) => p + 1);
+                          }}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
@@ -494,14 +797,29 @@ function parseSeoIndexEntryId(
 }
 
 function IndexWarningsPanel({
-  warnings,
   onOpenSiteMeta,
 }: {
-  warnings: SeoIndexWarningRow[];
   onOpenSiteMeta: (target: { contentType: string; slug: string; locale: string }) => void;
 }) {
   const [open, setOpen] = useState(false);
-  if (!warnings.length) return null;
+  const { data, isLoading } = useQuery<{
+    issues: SeoClusterIssueRow[];
+  }>({
+    queryKey: ["/api/validation/cache-issues", "seo-cluster"],
+    queryFn: async () => {
+      const token = getDebugToken();
+      const res = await fetch("/api/validation/cache-issues?validator=seo-cluster", {
+        headers: {
+          ...getSessionHeaders(),
+          ...(token ? { Authorization: `Token ${token}` } : {}),
+        },
+      });
+      if (!res.ok) throw new Error("Failed to load seo-cluster issues");
+      return res.json() as Promise<{ issues: SeoClusterIssueRow[] }>;
+    },
+  });
+  const issues = data?.issues ?? [];
+  if (!isLoading && !issues.length) return null;
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="mb-4">
       <CollapsibleTrigger asChild>
@@ -513,66 +831,76 @@ function IndexWarningsPanel({
         >
           <span>Configuration issues in the site’s internal SEO index</span>
           <Badge variant="secondary" className="shrink-0">
-            {warnings.length}
+            {isLoading ? "…" : issues.length}
           </Badge>
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent className="pt-2 space-y-2" data-testid="index-warnings-list">
         <p className="text-[11px] text-muted-foreground leading-relaxed">
-          These are setup problems in the CMS cluster graph (
-          <code className="font-mono text-[10px]">seo-index.json</code>
-          ), not Google Search Console indexing. Fix the YAML (or content-type SEO fields) for each
-          entry below.
+          These rows come from the diagnostics validation cache (
+          <code className="font-mono text-[10px]">seo-cluster</code>
+          ), not Google Search Console. Fix via site meta; run Refresh stale / Hard refresh on
+          Diagnostics if the list looks out of date.
         </p>
-        <ul className="space-y-2">
-          {warnings.map((w, i) => {
-            const help = SEO_INDEX_WARNING_HELP[w.code];
-            const target = parseSeoIndexEntryId(w.entry);
-            return (
-              <li
-                key={`${w.code}-${w.entry ?? i}`}
-                className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0 space-y-0.5">
-                    <p className="text-[11px] font-medium text-foreground">
-                      {help?.title ?? w.code}
-                      {w.entry ? (
-                        <span className="font-normal text-muted-foreground"> · {w.entry}</span>
-                      ) : null}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground leading-snug">
-                      {help?.body ?? "Unrecognized SEO-index warning — check the entry’s seo.* fields."}
-                      {w.message ? ` ${w.message}` : ""}
-                      {w.pillar_path ? (
-                        <>
-                          {" "}
-                          Path: <code className="font-mono text-[10px]">{w.pillar_path}</code>
-                        </>
-                      ) : null}
-                    </p>
-                    {help ? (
+        <Collapsible>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" size="sm" className="px-0 h-auto text-[11px]">
+              Read more (advanced)
+              <ChevronDown className="h-3 w-3 ml-1" />
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-1 space-y-0.5 font-mono text-[10px] text-muted-foreground">
+            <p>scripts/validation/validators/seo-cluster.ts</p>
+            <p>scripts/validation/shared/seoValidationScope.ts</p>
+            <p>{"{contentRoot}/validation-cache.json"}</p>
+            <p>GET /api/validation/cache-issues?validator=seo-cluster</p>
+          </CollapsibleContent>
+        </Collapsible>
+        {isLoading ? (
+          <p className="text-[11px] text-muted-foreground">Loading cluster issues…</p>
+        ) : (
+          <ul className="space-y-2">
+            {issues.map((w, i) => {
+              const help = SEO_CLUSTER_ISSUE_HELP[w.code];
+              const target = parseSeoIndexEntryId(w.entryKey);
+              return (
+                <li
+                  key={`${w.code}-${w.entryKey ?? i}`}
+                  className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 space-y-0.5">
+                      <p className="text-[11px] font-medium text-foreground">
+                        {help?.title ?? w.code}
+                        {w.entryKey ? (
+                          <span className="font-normal text-muted-foreground"> · {w.entryKey}</span>
+                        ) : null}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground leading-snug">
+                        {help?.body ?? w.message ?? "Check the entry’s seo.* fields."}
+                        {w.message && help ? ` ${w.message}` : ""}
+                      </p>
                       <p className="text-[10px] font-mono text-muted-foreground/80">{w.code}</p>
+                    </div>
+                    {target ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 shrink-0 gap-1 px-2 text-[10px]"
+                        data-testid={`button-open-site-meta-${w.code}-${target.slug}-${target.locale}`}
+                        onClick={() => onOpenSiteMeta(target)}
+                      >
+                        Open site meta to fix it
+                        <ArrowRight className="!size-3" aria-hidden />
+                      </Button>
                     ) : null}
                   </div>
-                  {target ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 shrink-0 gap-1 px-2 text-[10px]"
-                      data-testid={`button-open-site-meta-${w.code}-${target.slug}-${target.locale}`}
-                      onClick={() => onOpenSiteMeta(target)}
-                    >
-                      Open site meta to fix it
-                      <ArrowRight className="!size-3" aria-hidden />
-                    </Button>
-                  ) : null}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </CollapsibleContent>
     </Collapsible>
   );
@@ -1381,7 +1709,6 @@ interface SeoOverview {
   }[];
   clusterHealth?: ClusterHealth;
   brokenClusterRefs?: BrokenClusterRefRow[];
-  indexWarnings?: SeoIndexWarningRow[];
   orphanPages: {
     slug: string;
     contentType: string;
@@ -1539,12 +1866,16 @@ function SearchConsoleCoverageCard({
 }) {
   const [openList, setOpenList] = useState<string | undefined>(undefined);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [pullConfirmOpen, setPullConfirmOpen] = useState(false);
   const [mode, setMode] = useState<GscInspectMode>("never");
   const [starting, setStarting] = useState(false);
+  const [pulling, setPulling] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const { toast } = useToast();
   const { hasCapability } = useDebugAuth();
   const canEdit = hasCapability("seo_edit");
+  const isDev = import.meta.env.DEV;
   const types = summary ? Object.keys(summary.byContentType).sort() : [];
   const inspected = summary?.inspected ?? 0;
   const neverChecked = summary?.neverChecked ?? 0;
@@ -1598,6 +1929,7 @@ function SearchConsoleCoverageCard({
   const allJob = gscInspectJobSize(sitemapCount);
   const selectedCount = mode === "never" ? neverJob : mode === "stale" ? staleJob : allJob;
   const inspectDisabled = !configured || running;
+  const pullDisabled = running || pulling;
 
   async function startInspect() {
     if (inspectDisabled || starting || selectedCount === 0) return;
@@ -1641,6 +1973,74 @@ function SearchConsoleCoverageCard({
     }
   }
 
+  async function stopInspect() {
+    if (!running || stopping) return;
+    setStopping(true);
+    try {
+      const res = await apiRequestWithAuth("POST", "/api/debug/gsc-inspection/cancel");
+      const body = (await res.json()) as {
+        stopped?: boolean;
+        queue?: GscInspectQueueStats;
+        message?: string;
+      };
+      if (body.queue) {
+        queryClient.setQueryData(["/api/debug/gsc-inspection/queue"], body.queue);
+      }
+      void queryClient.invalidateQueries({ queryKey: ["/api/debug/gsc-inspection"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/debug/gsc-inspection/queue"] });
+      toast({
+        title: body.stopped ? "Inspect stopped" : "Nothing to stop",
+        description:
+          body.message ??
+          (body.stopped
+            ? "Rows already written were kept. Use Never inspected to continue."
+            : "No inspect job was running."),
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast({
+        title: "Could not stop inspect",
+        description: message,
+        variant: "destructive",
+      });
+      void queryClient.invalidateQueries({ queryKey: ["/api/debug/gsc-inspection/queue"] });
+    } finally {
+      setStopping(false);
+    }
+  }
+
+  async function pullProductionCache() {
+    if (pullDisabled) return;
+    setPulling(true);
+    try {
+      const res = await apiRequestWithAuth("POST", "/api/debug/gsc-inspection/pull-from-gcs");
+      const body = (await res.json()) as {
+        success?: boolean;
+        recordCount?: number;
+        gcsKey?: string;
+        message?: string;
+        error?: string;
+      };
+      setPullConfirmOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["/api/debug/gsc-inspection"] });
+      toast({
+        title: "Production cache loaded",
+        description:
+          body.message ??
+          `Loaded ${body.recordCount ?? 0} inspection row(s) from GCS into local .cache.`,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast({
+        title: "Could not load production cache",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setPulling(false);
+    }
+  }
+
   return (
     <Card data-testid="card-search-console-coverage">
       <CardHeader className="pb-3">
@@ -1649,28 +2049,65 @@ function SearchConsoleCoverageCard({
             <Globe className="h-4 w-4" />
             Search Console coverage
           </CardTitle>
-          {canEdit ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              className="shrink-0"
-              disabled={inspectDisabled}
-              onClick={() => {
-                setMode(neverChecked > 0 ? "never" : staleCount > 0 ? "stale" : "all");
-                setDialogOpen(true);
-              }}
-              data-testid="button-gsc-inspect-urls"
-            >
-              {running ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                  Inspecting
-                </>
+          <div className="flex items-center gap-2 shrink-0">
+            {isDev && canEdit ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                disabled={pullDisabled}
+                onClick={() => setPullConfirmOpen(true)}
+                data-testid="button-gsc-pull-production"
+              >
+                {pulling ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    Loading…
+                  </>
+                ) : (
+                  <>
+                    <DownloadCloud className="h-3.5 w-3.5 mr-1.5" />
+                    Load production
+                  </>
+                )}
+              </Button>
+            ) : null}
+            {canEdit ? (
+              running ? (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="shrink-0"
+                  disabled={stopping}
+                  onClick={() => void stopInspect()}
+                  data-testid="button-gsc-inspect-stop"
+                >
+                  {stopping ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      Stopping…
+                    </>
+                  ) : (
+                    "Stop"
+                  )}
+                </Button>
               ) : (
-                "Inspect URLs"
-              )}
-            </Button>
-          ) : null}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="shrink-0"
+                  disabled={inspectDisabled}
+                  onClick={() => {
+                    setMode(neverChecked > 0 ? "never" : staleCount > 0 ? "stale" : "all");
+                    setDialogOpen(true);
+                  }}
+                  data-testid="button-gsc-inspect-urls"
+                >
+                  Inspect URLs
+                </Button>
+              )
+            ) : null}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -1693,17 +2130,25 @@ function SearchConsoleCoverageCard({
           </CollapsibleTrigger>
           <CollapsibleContent className="pt-1 space-y-1 text-xs text-muted-foreground">
             <p>
-              Never inspected = no cache row yet (use after a mid-run redeploy). Stale = no row or inspected
-              more than 7 days ago. All = every sitemap URL, including the last hour. A permission error stops
-              the job. Restart drops the queue — Never inspected continues missing rows. Single-page inspect
-              (Test connection / Crawlers) still works during a run. Disabled until property +
-              GCS_CREDENTIALS_JSON are set. Dual write in production: local disk, then GCS after ~30s.
+              Never inspected = no cache row yet (use after a mid-run redeploy or after Stop). Stale = no row or
+              inspected more than 7 days ago. All = every sitemap URL, including the last hour. Stop drops the
+              remaining queue; rows already written stay. A permission error also stops the job. Restart drops
+              the queue — Never inspected continues missing rows. Single-page inspect (Test connection /
+              Crawlers) still works during a run. Disabled until property + GCS_CREDENTIALS_JSON are set. Dual
+              write in production: local disk, then GCS after ~30s.
+              {isDev
+                ? " Load production (dev only) overwrites local .cache from GCS; it does not upload and does not call Google."
+                : ""}
             </p>
             <p className="font-mono">server/gsc-inspect-queue.ts</p>
             <p className="font-mono">server/gsc-url-inspection.ts</p>
             <p className="font-mono">shared/gcsKeys.ts</p>
             <p className="font-mono">.cache/{"{site}"}/gsc-url-inspection.json</p>
             <p className="font-mono">{"{site}"}/sync/gsc-url-inspection.json</p>
+            <p className="font-mono">POST /api/debug/gsc-inspection/cancel</p>
+            {isDev ? (
+              <p className="font-mono">POST /api/debug/gsc-inspection/pull-from-gcs</p>
+            ) : null}
           </CollapsibleContent>
         </Collapsible>
         {configured === true && !running ? (
@@ -1718,6 +2163,11 @@ function SearchConsoleCoverageCard({
               SEO/GEO → Search Console
             </Link>{" "}
             (role-not-set), then start again.
+          </p>
+        ) : null}
+        {queue?.aborted === "cancelled" && !running ? (
+          <p className="text-xs text-muted-foreground" data-testid="text-gsc-inspect-cancelled">
+            Inspect stopped. Rows already written were kept. Use Never inspected to continue missing URLs.
           </p>
         ) : null}
         {running && queue ? (
@@ -1738,6 +2188,7 @@ function SearchConsoleCoverageCard({
         ) : !summary || inspected === 0 ? (
           <p className="text-sm text-muted-foreground" data-testid="text-gsc-empty-sidecar">
             No URLs inspected yet. Use Inspect URLs, check a page from diagnostics, or Test connection in settings.
+            {isDev ? " Or Load production to copy the GCS sidecar into local .cache." : ""}
           </p>
         ) : null}
         {configured !== false && summary ? (
@@ -1934,6 +2385,37 @@ function SearchConsoleCoverageCard({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={pullConfirmOpen} onOpenChange={setPullConfirmOpen}>
+        <AlertDialogContent
+          className="bg-background text-foreground"
+          data-testid="dialog-gsc-pull-production"
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>Load production cache?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Overwrites local{" "}
+              <code className="font-mono text-xs">.cache/{"{site}"}/gsc-url-inspection.json</code> with the
+              production GCS sidecar. Does not call Google and does not upload anything back to production.
+              Local Inspect URLs after this still stay local-only.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pulling}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={pulling}
+              onClick={(e) => {
+                e.preventDefault();
+                void pullProductionCache();
+              }}
+              data-testid="button-gsc-pull-production-confirm"
+            >
+              {pulling ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
+              Load production
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
@@ -2108,12 +2590,19 @@ export function SeoTab({ data }: { data: SeoOverview }) {
         </CardHeader>
         <CardContent>
           <ClusterMapHelp />
-          {data.clusterHealth ? <ClusterHealthPanel health={data.clusterHealth} /> : null}
+          {data.clusterHealth ? (
+            <ClusterHealthPanel
+              health={data.clusterHealth}
+              clusters={data.clusters}
+              onEditSeo={(contentType, slug, locale) => {
+                void beginEditSeo(contentType, slug, locale, "general");
+              }}
+            />
+          ) : null}
           {data.brokenClusterRefs && data.brokenClusterRefs.length > 0 ? (
             <BrokenClusterRefsPanel refs={data.brokenClusterRefs} clusters={data.clusters} />
           ) : null}
           <IndexWarningsPanel
-            warnings={data.indexWarnings ?? []}
             onOpenSiteMeta={({ contentType, slug, locale }) => {
               void beginEditSeo(contentType, slug, locale, "general");
             }}

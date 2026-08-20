@@ -17,6 +17,7 @@ export const CONTENT_TYPES_PATH = path.join(MARKETING_CONTENT_PATH, "content-typ
 interface SiteConfigMcp {
   domain: string;
   contentFolder: string;
+  inheritComponentsFrom?: string;
 }
 
 let _mcpSiteConfigsCache: SiteConfigMcp[] | null = null;
@@ -69,6 +70,10 @@ function parseSitesYml(): SiteConfigMcp[] {
       configs.push({
         domain,
         contentFolder: (c.content_folder as string) || (c.contentFolder as string) || "site_default",
+        inheritComponentsFrom:
+          (typeof c.inherit_components_from === "string" && c.inherit_components_from.trim()) ||
+          (typeof c.inheritComponentsFrom === "string" && c.inheritComponentsFrom.trim()) ||
+          undefined,
       });
     }
   }
@@ -568,12 +573,22 @@ function readSchemaMeta(schemaYml: string): {
   return { name, description, variants };
 }
 
+function inheritForFolder(contentFolder: string): string | undefined {
+  const want = contentFolder.replace(/\\/g, "/").replace(/\/+$/, "");
+  for (const c of getMcpSiteConfigs()) {
+    const folder = c.contentFolder.replace(/\\/g, "/").replace(/\/+$/, "");
+    if (folder === want) return c.inheritComponentsFrom;
+  }
+  return undefined;
+}
+
 export function listComponents(contentPath?: string): ComponentInfo[] {
   const folder = contentFolderFromPath(contentPath);
-  assertNoRegistryCollisions(folder);
+  const inherit = inheritForFolder(folder);
+  assertNoRegistryCollisions(folder, process.cwd(), inherit);
   const components: ComponentInfo[] = [];
 
-  for (const entry of listMergedComponentTypes(folder)) {
+  for (const entry of listMergedComponentTypes(folder, process.cwd(), inherit)) {
     const versionDirs = fs
       .readdirSync(entry.componentDir, { withFileTypes: true })
       .filter(d => d.isDirectory() && /^v\d/.test(d.name));
@@ -609,7 +624,7 @@ export interface ComponentSchemaSlim {
 
 export function getComponentSchema(componentType: string, contentPath?: string): ComponentSchemaSlim | null {
   const folder = contentFolderFromPath(contentPath);
-  const resolved = resolveComponentPath(componentType, folder);
+  const resolved = resolveComponentPath(componentType, folder, process.cwd(), inheritForFolder(folder));
   if (!resolved) return null;
 
   const versionDirs = fs
@@ -685,7 +700,7 @@ export function getComponentVariant(
   contentPath?: string,
 ): ComponentVariantDetail | null {
   const folder = contentFolderFromPath(contentPath);
-  const resolved = resolveComponentPath(componentType, folder);
+  const resolved = resolveComponentPath(componentType, folder, process.cwd(), inheritForFolder(folder));
   if (!resolved) return null;
   const componentPath = resolved.componentDir;
 
