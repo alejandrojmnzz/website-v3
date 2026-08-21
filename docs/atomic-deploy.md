@@ -10,7 +10,20 @@
   .git/                # object store for fetch/archive (not the live app)
 ```
 
-Live process must use `current` (see systemd below). Mutable content stays in `persistent/`; each release only symlinks into it. `.env` is **per release** (written by `scripts/deploy.sh` from `_WEBSITE_*` secrets, or copied from the previous release if the pack is empty).
+Live process must use `current` (see systemd below). Mutable content stays in `persistent/`. `.env` is **per release** (written by `scripts/deploy.sh` from `_WEBSITE_*` secrets, or copied from the previous release if the pack is empty).
+
+### Per-site hybrid (important)
+
+`shared/schema.ts` imports Zod schemas from `site_*/component-registry/**/*.ts` via relative paths. If the whole `site_*` directory is a symlink into `persistent/`, Node resolves those `../` against the **realpath** and looks for `persistent/shared/…`, which breaks the build.
+
+So each release gets:
+
+| Path under `site_*` | Treatment |
+|---------------------|-----------|
+| Everything except `component-registry/` | Symlink → `persistent/site_*/…` (YAML, blog, images, sync state, …) |
+| `component-registry/` | **Copied** into the release (real files next to `shared/`) |
+
+Edits to registry schemas in `persistent/` apply to the running build on the **next** deploy (when they are copied again). YAML/content via symlink is live immediately.
 
 ## One-time: point systemd at `current`
 
@@ -40,7 +53,7 @@ The app writes to `cwd/site_…` and does not know about `persistent/`. On each 
 1. Finds real (non-symlink) `site_*` dirs under `current/` (and legacy app root)
 2. `mv` them into `persistent/`
 3. Puts an absolute symlink back at the old path so the live process keeps working
-4. Then links those folders into the new release as usual
+4. Then materializes each site into the new release (hybrid link/copy above)
 
 If `persistent/site_…` already exists, adopt skips (does not overwrite). Empty `persistent` folders are still created for new `content_folder` entries in `sites.yml` when nothing exists yet.
 
@@ -50,11 +63,12 @@ GitHub Actions (`deploy-vps.yml`) exports `DEPLOY_SHA` + `WEBSITE_RUNTIME_B64`, 
 
 1. Adopt real `site_*` dirs into `persistent/` (symlink back on live tree)
 2. `git archive` → `releases/<sha>/`
-3. Symlinks → `persistent/`
-4. Writes `.env`
-5. `npm ci` + build
-6. Flips `current`, restarts, health-checks (rollback `current` on failure)
-7. Prunes old releases (keeps active + 5 others; never deletes `readlink current`)
+3. Symlinks for `data` / `.cache` / `sites.yml` / …
+4. Per site: content symlinks + **copy** `component-registry/`
+5. Writes `.env`
+6. `npm ci` + build
+7. Flips `current`, restarts, health-checks (rollback `current` on failure)
+8. Prunes old releases (keeps active + 5 others; never deletes `readlink current`)
 
 ## Manual rollback
 

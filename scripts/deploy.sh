@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Atomic deploy: build into releases/<sha>, symlink persistent data, flip current.
+# Atomic deploy: build into releases/<sha>, link persistent data, flip current.
+# Sites: content/YAML symlinked from persistent/; component-registry copied into the
+# release so relative imports from shared/schema.ts resolve correctly.
 # Required env: DEPLOY_SHA (full git commit).
 # Optional: WEBSITE_RUNTIME_B64 (packed _WEBSITE_ secrets; empty → reuse prior .env).
 set -euo pipefail
@@ -130,10 +132,6 @@ link_persistent() {
 
   if [[ ! -e "$target" && ! -L "$target" ]]; then
     case "$name" in
-      site_*)
-        mkdir -p "$target"
-        echo "[deploy] created empty $target (new site folder)"
-        ;;
       .cache|.local|data|snapshots)
         mkdir -p "$target"
         ;;
@@ -157,22 +155,76 @@ link_persistent() {
   ln -sfn "../../persistent/$name" "$link"
 }
 
+# site_*: YAML/content → symlink into persistent; component-registry → real copy in the
+# release so shared/schema.ts relative imports resolve next to shared/ (not persistent/shared).
+link_site_hybrid() {
+  local name="$1"
+  local src="$PERSISTENT/$name"
+  local dest="$RELEASE/$name"
+  local child base
+
+  [[ "$name" == site_* ]] || {
+    echo "ERROR: link_site_hybrid expected site_* name, got $name" >&2
+    exit 1
+  }
+
+  if [[ ! -e "$src" && ! -L "$src" ]]; then
+    mkdir -p "$src"
+    echo "[deploy] created empty $src (new site folder)"
+  fi
+  if [[ -L "$src" ]]; then
+    src="$(readlink -f "$src")"
+  fi
+  if [[ ! -d "$src" ]]; then
+    echo "ERROR: persistent site path is not a directory: $src" >&2
+    exit 1
+  fi
+
+  rm -rf "$dest"
+  mkdir -p "$dest"
+
+  shopt -s nullglob
+  for child in "$src"/* "$src"/.[!.]* "$src"/..?*; do
+    [[ -e "$child" || -L "$child" ]] || continue
+    base="$(basename "$child")"
+    [[ "$base" == "." || "$base" == ".." ]] && continue
+    if [[ "$base" == "component-registry" ]]; then
+      continue
+    fi
+    ln -sfn "$child" "$dest/$base"
+  done
+  shopt -u nullglob
+
+  if [[ -d "$src/component-registry" ]]; then
+    cp -a "$src/component-registry" "$dest/component-registry"
+    echo "[deploy] copied $name/component-registry into release (not symlinked)"
+  else
+    mkdir -p "$dest/component-registry"
+    echo "[deploy] no component-registry in $src — created empty dir in release"
+  fi
+}
+
 echo "[deploy] linking persistent paths"
 for name in sites.yml data .cache .local .multisite-user-store.json .qdrant-initialized snapshots; do
   link_persistent "$name"
 done
 
-# All site_* already in persistent/, plus any content_folder from sites.yml
+echo "[deploy] linking sites (hybrid: content symlink, registry copy)"
+declare -A linked_sites=()
 shopt -s nullglob
 for dir in "$PERSISTENT"/site_*; do
   [[ -d "$dir" || -L "$dir" ]] || continue
-  link_persistent "$(basename "$dir")"
+  name="$(basename "$dir")"
+  linked_sites[$name]=1
+  link_site_hybrid "$name"
 done
 shopt -u nullglob
 
 while IFS= read -r folder; do
   [[ -n "$folder" ]] || continue
-  link_persistent "$folder"
+  [[ -n "${linked_sites[$folder]:-}" ]] && continue
+  linked_sites[$folder]=1
+  link_site_hybrid "$folder"
 done < <(list_sites_yml_folders "$PERSISTENT/sites.yml")
 
 copy_prior_env() {
