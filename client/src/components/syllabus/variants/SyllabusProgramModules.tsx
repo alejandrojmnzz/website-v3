@@ -21,7 +21,8 @@ interface ModuleAccordionProps {
   testId: string;
   expandLabel?: string;
   collapseLabel?: string;
-}
+} 
+// test
 
 function renderSectionIcon(iconName: string, className?: string) {
   const cls = className || "w-5 h-5 text-primary";
