@@ -61,7 +61,9 @@ If `persistent/site_…` already exists, adopt skips (does not overwrite). Empty
 
 ## Deploy path
 
-GitHub Actions (`deploy-vps.yml`) exports `DEPLOY_SHA` + `WEBSITE_RUNTIME_B64`, fetches that commit on the VPS, extracts `scripts/deploy.sh` from that SHA, and runs it. The script:
+GitHub Actions (`deploy-vps.yml`) uses a single concurrency group with `cancel-in-progress: true`: a newer push to `main` cancels an in-flight deploy. Partial `releases/<sha>/` dirs from cancelled runs are fine; only `current` serves traffic. The remote SSH step writes a pid into the deploy lock and steals stale locks left by abrupt cancels.
+
+The workflow exports `DEPLOY_SHA` + `WEBSITE_RUNTIME_B64`, fetches that commit on the VPS, extracts `scripts/deploy.sh` from that SHA, and runs it. The script:
 
 1. Adopt real `site_*` dirs into `persistent/` (symlink back on live tree)
 2. `git archive` → `releases/<sha>/`

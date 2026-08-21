@@ -8,6 +8,8 @@ on:
 
 concurrency:
   group: deploy-vps
+  # New push to main cancels an in-flight deploy; atomic releases make that safe.
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -93,11 +95,35 @@ jobs:
             printf 'export DEPLOY_SHA=%q\n' "$DEPLOY_SHA"
             cat <<'REMOTE'
           set -euo pipefail
+          # cancel-in-progress can kill SSH before trap runs; recover stale locks.
           LOCK_DIR="/tmp/website-v3-deploy.lock"
           LOCK_WAIT_SECONDS=10
           LOCK_TIMEOUT_SECONDS=900
+          LOCK_STALE_SECONDS=1800
           waited=0
+
+          lock_is_stale() {
+            local pid_file="$LOCK_DIR/pid"
+            if [ -f "$pid_file" ]; then
+              local pid
+              pid="$(cat "$pid_file" 2>/dev/null || true)"
+              if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
+                return 1
+              fi
+              return 0
+            fi
+            # No pid (legacy lock) — treat as stale if older than LOCK_STALE_SECONDS.
+            local age
+            age="$(( $(date +%s) - $(stat -c %Y "$LOCK_DIR" 2>/dev/null || echo 0) ))"
+            [ "$age" -ge "$LOCK_STALE_SECONDS" ]
+          }
+
           while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+            if lock_is_stale; then
+              echo "[deploy-lock] removing stale lock (cancelled deploy or dead pid)"
+              rm -rf "$LOCK_DIR"
+              continue
+            fi
             if [ "$waited" -ge "$LOCK_TIMEOUT_SECONDS" ]; then
               echo "[deploy-lock] another deploy is still running after ${LOCK_TIMEOUT_SECONDS}s" >&2
               exit 1
@@ -106,6 +132,7 @@ jobs:
             sleep "$LOCK_WAIT_SECONDS"
             waited=$((waited + LOCK_WAIT_SECONDS))
           done
+          echo $$ > "$LOCK_DIR/pid"
           cleanup() {
             rm -rf "$LOCK_DIR"
           }
