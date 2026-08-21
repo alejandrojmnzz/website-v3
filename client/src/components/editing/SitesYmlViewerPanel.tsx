@@ -1,25 +1,31 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, Loader2, X } from "lucide-react";
+import { AlertTriangle, Loader2, Save, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { getDebugToken } from "@/hooks/useDebugAuth";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import YamlEditor from "./YamlEditor";
 
 interface SitesYmlViewerPanelProps {
   onClose: () => void;
+  onSaved?: () => void;
 }
 
 interface SitesYmlResponse {
   exists: boolean;
-  path: string;
   content: string | null;
   error?: string;
 }
 
-export default function SitesYmlViewerPanel({ onClose }: SitesYmlViewerPanelProps) {
+export default function SitesYmlViewerPanel({ onClose, onSaved }: SitesYmlViewerPanelProps) {
+  const { toast } = useToast();
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [originalContent, setOriginalContent] = useState("");
   const [content, setContent] = useState("");
-  const [filePath, setFilePath] = useState("sites.yml");
   const [error, setError] = useState<string | null>(null);
+
+  const hasChanges = content !== originalContent;
 
   useEffect(() => {
     const fetchSitesYml = async () => {
@@ -33,10 +39,10 @@ export default function SitesYmlViewerPanel({ onClose }: SitesYmlViewerPanelProp
           return;
         }
         if (!data.exists || data.content == null) {
-          setError("sites.yml not found at project root");
+          setError("sites.yml not found");
           return;
         }
-        setFilePath(data.path);
+        setOriginalContent(data.content);
         setContent(data.content);
       } catch {
         setError("Failed to load sites.yml");
@@ -48,21 +54,61 @@ export default function SitesYmlViewerPanel({ onClose }: SitesYmlViewerPanelProp
     void fetchSitesYml();
   }, []);
 
+  const handleSave = async () => {
+    if (!hasChanges) {
+      toast({ title: "No changes to save" });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const token = getDebugToken();
+      const res = await fetch("/api/admin/sites-yml", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...getSessionHeaders(),
+          ...(token ? { Authorization: `Token ${token}` } : {}),
+        },
+        body: JSON.stringify({ content }),
+      });
+      const data = await res.json().catch(() => ({ error: "Unknown error" }));
+      if (!res.ok) {
+        throw new Error(data.error || `Request failed with status ${res.status}`);
+      }
+
+      setOriginalContent(content);
+      toast({ title: "sites.yml saved" });
+      onSaved?.();
+    } catch (err) {
+      toast({
+        title: "Failed to save",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleClose = () => {
+    if (hasChanges) {
+      const confirmClose = window.confirm("You have unsaved changes. Close without saving?");
+      if (!confirmClose) return;
+    }
+    onClose();
+  };
+
   return (
     <div
       className="fixed right-0 top-0 bottom-0 w-full sm:w-[520px] bg-background border-l shadow-xl z-[9999] flex flex-col"
       data-testid="sites-yml-viewer-panel"
     >
       <div className="flex items-center justify-between p-4 border-b">
-        <div className="min-w-0 flex-1">
-          <h2 className="font-semibold" data-testid="text-sites-yml-title">
-            sites.yml
-          </h2>
-          <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid="text-sites-yml-path">
-            {filePath}
-          </p>
-        </div>
-        <Button size="icon" variant="ghost" onClick={onClose} data-testid="button-close-sites-yml-viewer">
+        <h2 className="font-semibold" data-testid="text-sites-yml-title">
+          Edit sites.yml
+        </h2>
+        <Button size="icon" variant="ghost" onClick={handleClose} data-testid="button-close-sites-yml-viewer">
           <X className="h-4 w-4" />
         </Button>
       </div>
@@ -80,11 +126,35 @@ export default function SitesYmlViewerPanel({ onClose }: SitesYmlViewerPanelProp
         ) : (
           <YamlEditor
             value={content}
-            readOnly
-            highlightActiveLine={false}
+            onChange={setContent}
             className="h-full [&_.cm-editor]:h-full [&_.cm-scroller]:overflow-auto"
           />
         )}
+      </div>
+
+      <div className="flex items-center justify-between p-3 border-t gap-2">
+        {hasChanges && (
+          <span className="text-xs text-amber-600 dark:text-amber-400" data-testid="text-sites-yml-unsaved">
+            Unsaved changes
+          </span>
+        )}
+        <div className="flex items-center gap-2 ml-auto">
+          <Button variant="outline" onClick={handleClose} data-testid="button-cancel-sites-yml-editor">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={!hasChanges || saving || !!error}
+            data-testid="button-save-sites-yml-editor"
+          >
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <Save className="h-4 w-4 mr-2" />
+            )}
+            Save
+          </Button>
+        </div>
       </div>
     </div>
   );

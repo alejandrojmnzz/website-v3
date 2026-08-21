@@ -366,20 +366,67 @@ export function registerAdminRoutes(app: Express): void {
     if (!auth.authorized) return;
 
     try {
-      const { getSitesYmlLocalPath, readSitesYmlLocal } = await import("../sites-yml-store");
+      const { readSitesYmlLocal } = await import("../sites-yml-store");
       const content = readSitesYmlLocal();
       res.json({
         exists: content !== null,
-        path: getSitesYmlLocalPath(),
         content,
       });
     } catch (err) {
       log.error({ err }, "[SiteManager] Failed to read sites.yml:");
       res.status(500).json({
         exists: false,
-        path: "sites.yml",
         content: null,
         error: err instanceof Error ? err.message : "Failed to read sites.yml",
+      });
+    }
+  });
+
+  app.put("/api/admin/sites-yml", async (req, res) => {
+    const auth = await requireCapability(req, res, "webmaster");
+    if (!auth.authorized) return;
+
+    try {
+      const { content } = req.body as { content?: string };
+      if (typeof content !== "string") {
+        return res.status(400).json({ error: "content is required" });
+      }
+
+      const { validateSitesYmlContent, resetSiteConfigs, getSiteConfigs } = await import("../site-config");
+      const { saveSitesYml } = await import("../sites-yml-store");
+      const { resetSiteContextMap } = await import("../site-manager");
+
+      // Validate before writing so a bad edit cannot brick the local registry.
+      validateSitesYmlContent(content);
+      saveSitesYml(content);
+      resetSiteConfigs();
+      resetSiteContextMap();
+
+      const { getSiteContextMap, getDefaultSite } = await import("../site-manager");
+      const staleSite = res.locals.site;
+      if (staleSite) {
+        const freshCtx = getSiteContextMap().get(staleSite.config.domain) ?? getDefaultSite();
+        res.locals.site = { ...freshCtx, isDevOverride: staleSite.isDevOverride ?? false };
+      }
+
+      const sites = getSiteConfigs().map(({ domain, contentFolder, githubRepoUrl }) => ({
+        domain,
+        contentFolder,
+        githubRepoUrl,
+      }));
+      const siteInfo = getSiteInfo(req, res);
+
+      res.json({
+        success: true,
+        sites,
+        siteInfo,
+        message: "sites.yml saved.",
+      });
+    } catch (err) {
+      log.error({ err }, "[SiteManager] Failed to save sites.yml:");
+      res.status(400).json({
+        success: false,
+        error: err instanceof Error ? err.message : "Failed to save sites.yml",
       });
     }
   });

@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { IconServer } from "@tabler/icons-react";
-import { AlertCircle, Check, Loader2, Pencil, Plus, Power, RefreshCw, X } from "lucide-react";
+import { AlertCircle, Check, FileText, Loader2, Pencil, Plus, Power, RefreshCw, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +26,8 @@ import { getDebugToken } from "@/hooks/useDebugAuth";
 import { useHardRestart } from "@/hooks/useHardRestart";
 import { useToast } from "@/hooks/use-toast";
 import { setDevSiteOverride, stashPendingDomainNavigation } from "@/lib/devSite";
+
+const SitesYmlViewerPanel = lazy(() => import("@/components/editing/SitesYmlViewerPanel"));
 
 const IS_PROD = import.meta.env.PROD;
 
@@ -225,11 +227,14 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
   const [renamedTargetDomain, setRenamedTargetDomain] = useState<string | null>(null);
   const [pendingDomainRename, setPendingDomainRename] = useState<{ from: string; to: string } | null>(null);
   const [displaySiteInfo, setDisplaySiteInfo] = useState<SiteInfo | null>(null);
+  const [showSitesYml, setShowSitesYml] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { phase: restartPhase, message: restartMessage, start: startRestart, reset: resetRestart } = useHardRestart();
   const currentSiteInfo = displaySiteInfo ?? siteInfo ?? null;
-  const siteManagerDialogOpen = open && !domainConfirmOpen && !restartConfirmOpen && !domainReloadActive;
+  // Hide dialog while sites.yml side panel is open (dialog overlay is z-[10000], panel is z-[9999]).
+  const siteManagerDialogOpen =
+    open && !domainConfirmOpen && !restartConfirmOpen && !domainReloadActive && !showSitesYml;
 
   const refreshMutation = useMutation<RefreshConfigResult, Error>({
     mutationFn: async () => {
@@ -361,6 +366,7 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
       setDomainReloadActive(false);
       setRenamedTargetDomain(null);
       setPendingDomainRename(null);
+      setShowSitesYml(false);
       resetRestart();
     }
     onOpenChange(v);
@@ -605,6 +611,15 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
               <Button
                 variant="outline"
                 size="sm"
+                onClick={() => setShowSitesYml(true)}
+                data-testid="button-view-sites-yml"
+              >
+                <FileText className="h-3.5 w-3.5 mr-1.5" />
+                View YAML
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => refreshMutation.mutate()}
                 disabled={refreshMutation.isPending}
                 data-testid="button-refresh-site-config"
@@ -766,6 +781,19 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
           </div>
         </AlertDialogContent>
       </AlertDialog>
+
+      {showSitesYml && (
+        <Suspense fallback={null}>
+          <SitesYmlViewerPanel
+            onClose={() => setShowSitesYml(false)}
+            onSaved={() => {
+              void queryClient.invalidateQueries({ queryKey: ["/api/site/info"] });
+              void queryClient.invalidateQueries({ queryKey: ["/api/sites"] });
+              setDisplaySiteInfo(null);
+            }}
+          />
+        </Suspense>
+      )}
     </>
   );
 }

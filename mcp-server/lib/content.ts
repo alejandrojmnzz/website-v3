@@ -65,17 +65,29 @@ function parseSitesYml(): SiteConfigMcp[] {
   const configs: SiteConfigMcp[] = [];
   for (const [domain, config] of Object.entries(parsed)) {
     if (domain === "bucket_name") continue;
-    if (config && typeof config === "object") {
-      const c = config as Record<string, unknown>;
-      configs.push({
-        domain,
-        contentFolder: (c.content_folder as string) || (c.contentFolder as string) || "site_default",
-        inheritComponentsFrom:
-          (typeof c.inherit_components_from === "string" && c.inherit_components_from.trim()) ||
-          (typeof c.inheritComponentsFrom === "string" && c.inheritComponentsFrom.trim()) ||
-          undefined,
-      });
+    if (!config || typeof config !== "object" || Array.isArray(config)) {
+      throw new Error(
+        formatSitesYmlRequiredError(
+          `site "${domain}" must be a YAML mapping with content_folder (got ${config === null ? "null" : Array.isArray(config) ? "array" : typeof config})`,
+        ),
+      );
     }
+    const c = config as Record<string, unknown>;
+    const contentFolder =
+      (typeof c.content_folder === "string" && c.content_folder.trim()) ||
+      (typeof c.contentFolder === "string" && c.contentFolder.trim()) ||
+      "";
+    if (!contentFolder) {
+      throw new Error(formatSitesYmlRequiredError(`site "${domain}" is missing required content_folder`));
+    }
+    configs.push({
+      domain,
+      contentFolder,
+      inheritComponentsFrom:
+        (typeof c.inherit_components_from === "string" && c.inherit_components_from.trim()) ||
+        (typeof c.inheritComponentsFrom === "string" && c.inheritComponentsFrom.trim()) ||
+        undefined,
+    });
   }
 
   if (configs.length === 0) {

@@ -5,6 +5,7 @@
   "license": "MIT",
   "scripts": {
     "check:sites": "tsx scripts/check-sites.ts",
+    "check:sites-yml": "tsx scripts/check-sites-yml.ts",
     "check:registry": "tsx scripts/check-registry.ts",
     "content:pull": "tsx scripts/content-pull.ts",
     "ensure:registry": "tsx scripts/ensure-registry.ts",
@@ -13,7 +14,7 @@
     "ensure:schema-yml": "tsx scripts/ensure-schema-yml.ts",
     "generate:icon-map": "tsx scripts/generate-icon-map.ts",
     "predev": "npm run check:sites && npm run ensure:registry && npm run ensure:schema-yml && npm run generate:icon-map",
-    "prebuild": "npm run ensure:registry && npm run ensure:schema-yml && npm run generate:icon-map",
+    "prebuild": "npm run check:sites-yml && npm run ensure:registry && npm run ensure:schema-yml && npm run generate:icon-map",
     "dev": "NODE_ENV=development tsx server/index.ts",
     "mcp": "tsx mcp-server/index.ts",
     "build": "vite build && vite build --ssr src/entry-server.tsx && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist --alias:@shared=./shared && esbuild mcp-server/index.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/mcp-server.js",

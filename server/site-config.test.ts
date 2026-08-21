@@ -147,6 +147,55 @@ b.example.com:
     expect(() => getSiteConfigs()).toThrow(/parent folder missing on disk/);
   });
 
+  it("rejects site entry missing content_folder", () => {
+    fs.writeFileSync(
+      path.join(tempDir, "sites.yml"),
+      `a.example.com:
+  github_repo_url: https://github.com/org/content
+`,
+      "utf-8",
+    );
+    resetSiteConfigs();
+    expect(() => getSiteConfigs()).toThrow(/missing required content_folder/);
+  });
+
+  it("rejects non-object site entry", () => {
+    fs.writeFileSync(
+      path.join(tempDir, "sites.yml"),
+      `a.example.com: just-a-string
+`,
+      "utf-8",
+    );
+    resetSiteConfigs();
+    expect(() => getSiteConfigs()).toThrow(/must be a YAML mapping/);
+  });
+
+  it("rejects fallback_content_folder that is not another site folder", () => {
+    fs.writeFileSync(
+      path.join(tempDir, "sites.yml"),
+      `a.example.com:
+  content_folder: site_a
+  fallback_content_folder: site_missing
+`,
+      "utf-8",
+    );
+    resetSiteConfigs();
+    expect(() => getSiteConfigs()).toThrow(/fallback_content_folder "site_missing"/);
+  });
+
+  it("rejects fallback_content_folder pointing at self", () => {
+    fs.writeFileSync(
+      path.join(tempDir, "sites.yml"),
+      `a.example.com:
+  content_folder: site_a
+  fallback_content_folder: site_a
+`,
+      "utf-8",
+    );
+    resetSiteConfigs();
+    expect(() => getSiteConfigs()).toThrow(/fallback_content_folder cannot be its own/);
+  });
+
   it("formatSitesYmlRequiredError includes reason and example", () => {
     const msg = formatSitesYmlRequiredError("test reason");
     expect(msg).toContain("test reason");
