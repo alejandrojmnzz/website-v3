@@ -31,9 +31,12 @@ jobs:
         continue-on-error: true
         run: npm run check
 
-      # sites.yml is gitignored; settings.ts loads it at import time.
-      - name: Fixture sites.yml for tests
-        run: cp sites.yml.example sites.yml
+      # site_* / sites.yml are gitignored. Seed enough for shared/schema + CT tests.
+      - name: Install CI content fixture
+        run: |
+          cp fixtures/ci/sites.fixture.yml sites.yml
+          rm -rf site_4geeks-com
+          cp -a fixtures/ci/content-4geeks-com site_4geeks-com
 
       - name: Unit tests
         run: npx vitest run
