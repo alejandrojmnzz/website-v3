@@ -7,8 +7,6 @@ Related runbooks (kept separate on purpose):
 - sGTM prod cutover: [`sgtm-prod-cutover.md`](sgtm-prod-cutover.md)
 - sGTM migration context: [`sgtm-self-host-migration-context.md`](sgtm-self-host-migration-context.md)
 
-Older root stubs (`vps-security-*.md`, `vps-migration-remaining.md`, `docs/atomic-deploy.md`) point here.
-
 ---
 
 ## 1. Status
