@@ -45,10 +45,17 @@ jobs:
                   continue
               out[name] = str(value)
           packed = base64.b64encode(json.dumps(out, separators=(",", ":")).encode()).decode("ascii")
+          # Base64 blob is not an exact match for any single secret, so Actions
+          # would not mask it if it leaked into logs. Register it explicitly.
+          print(f"::add-mask::{packed}")
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
               fh.write(f"WEBSITE_RUNTIME_B64={packed}\n")
           print("[runtime-env] packed", len(out), "keys:", ", ".join(sorted(out)) or "(none)")
           PY
+
+      # WEBSITE_RUNTIME_B64 stays in the job env for later steps. Do not add
+      # third-party/notification steps after this that dump the environment.
+      # Never enable bash set -x in the SSH step (would expand the blob).
 
       - name: Skip if not latest commit
         id: latest

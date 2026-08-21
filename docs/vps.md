@@ -103,7 +103,7 @@ Workflow: [`.github/workflows/deploy-vps.yml`](../.github/workflows/deploy-vps.y
 
 - Triggers: push to `main`, `workflow_dispatch`
 - Concurrency group `deploy-vps` with **`cancel-in-progress: true`** — a newer push cancels an in-flight deploy. Partial `releases/<sha>/` dirs from cancelled runs are fine; only `current` serves traffic.
-- Packs GitHub secrets/vars whose names start with `_WEBSITE_` → `WEBSITE_RUNTIME_B64`
+- Packs GitHub secrets/vars whose names start with `_WEBSITE_` → `WEBSITE_RUNTIME_B64`, then registers `::add-mask::` on that blob (base64 is not an exact match for individual secrets, so Actions would not mask it otherwise). Avoid `set -x` in the SSH step; do not add env-dumping steps after packing.
 - Skips if the workflow SHA is no longer tip of `main`
 - SSH as deploy user (not root): remote lock `/tmp/website-v3-deploy.lock` with **pid + stale recovery** (cancel can kill SSH before `trap` cleanup)
 - Fetches `DEPLOY_SHA`, extracts `scripts/deploy.sh` **from that commit**, runs it
