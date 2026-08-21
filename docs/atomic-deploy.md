@@ -23,7 +23,9 @@ So each release gets:
 | Everything except `component-registry/` | Symlink → `persistent/site_*/…` (YAML, blog, images, sync state, …) |
 | `component-registry/` | **Copied** into the release (real files next to `shared/`) |
 
-Edits to registry schemas in `persistent/` apply to the running build on the **next** deploy (when they are copied again). YAML/content via symlink is live immediately.
+YAML/content via symlink is live immediately.
+
+**Sync / GitHub pull and registry:** pull still writes/deletes under `cwd` (the release copy). After a change under `component-registry/`, the server mirrors that tree **release → `persistent/`** (`server/component-registry-persistent.ts`) so the next deploy’s `cp -a` does not resurrect deleted or stale registry files. Without `persistent/` (local dev), the mirror is a no-op.
 
 ## One-time: point systemd at `current`
 
