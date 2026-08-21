@@ -74,7 +74,8 @@ So each release gets:
 | Path under `site_*` | Treatment |
 |---------------------|-----------|
 | Everything except `component-registry/` | Symlink → `persistent/site_*/…` (YAML, blog, images, sync state, …) |
-| `component-registry/` | **Copied** into the release (real files next to `shared/`) |
+| `component-registry/` (if present in persistent) | **Copied** into the release (real files next to `shared/`) |
+| No `component-registry/` in persistent | Left absent (do not mkdir empty — required for `inherit_components_from`) |
 
 YAML/content via symlink is live immediately.
 

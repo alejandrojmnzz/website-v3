@@ -199,8 +199,9 @@ link_site_hybrid() {
     cp -a "$src/component-registry" "$dest/component-registry"
     echo "[deploy] copied $name/component-registry into release (not symlinked)"
   else
-    mkdir -p "$dest/component-registry"
-    echo "[deploy] no component-registry in $src — created empty dir in release"
+    # Do not mkdir an empty registry: sites with inherit_components_from must omit
+    # the directory entirely (schema:sync / registry-resolve enforce parent-only).
+    echo "[deploy] no component-registry in $src — leaving absent in release"
   fi
 }
 
