@@ -63,6 +63,7 @@ import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTy
 import { WebhookUrlPopover } from "@/components/WebhookUrlPopover";
 import { getMetaIssues } from "@/lib/metaIssues";
 import { isUsableOgImageUrl } from "@shared/ogImageUrl";
+import { isLocaleIndexField, stripLocaleIndexFields } from "@shared/locale";
 
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
 
@@ -142,6 +143,7 @@ interface ContentTypeConfig {
   static_entry_count?: number;
   preview?: ContentTypePreviewConfig | null;
   schema_org_requirements?: Array<{ schema_type: string }>;
+  seo_monitoring?: { enabled?: boolean; require_cluster?: boolean } | null;
 }
 
 interface SchemaOrgCoverageRow {
@@ -670,55 +672,75 @@ function ClearCacheConfirmDialog({
 function RequiredFieldConfirmDialog({
   open,
   onOpenChange,
-  onConfirm,
+  onSelect,
   fieldName,
-  currentlyRequired,
+  currentRequired,
+  allowAttachedMode,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: () => void;
+  onSelect: (next: false | true | "attached") => void;
   fieldName: string | null;
-  currentlyRequired: boolean;
+  currentRequired: false | true | "attached";
+  /** Show "Required when attached" only for shared-layout content types. */
+  allowAttachedMode: boolean;
 }) {
-  const enabling = !currentlyRequired;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[480px]" data-testid="dialog-required-field-confirm">
+      <DialogContent className="sm:max-w-[520px]" data-testid="dialog-required-field-confirm">
         <DialogHeader>
-          <DialogTitle>
-            {enabling ? "Mark as required for publish" : "Remove required for publish"}
-          </DialogTitle>
+          <DialogTitle>Required for publish</DialogTitle>
           <DialogDescription>
             {fieldName ? (
               <>
                 Field{" "}
                 <code className="font-mono text-foreground text-xs">{fieldName}</code>
+                {currentRequired === true
+                  ? " — currently required always (even detached)"
+                  : currentRequired === "attached"
+                    ? " — currently required only on template (attached)"
+                    : " — currently never required"}
               </>
             ) : (
-              "Required for publish"
+              "Choose how this field is required"
             )}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 text-sm text-muted-foreground" data-testid="fields-required-education">
           <p>
-            <strong className="font-medium text-foreground">Required for publish</strong> means drafts may
-            leave this field empty; publishing requires a value; live saves cannot clear it.
+            <strong className="font-medium text-foreground">Never required</strong> — drafts and live
+            entries may leave this field empty.
+          </p>
+          {allowAttachedMode ? (
+            <p>
+              <strong className="font-medium text-foreground">Required only on template (attached)</strong>{" "}
+              (<code className="font-mono text-[10px]">editor.required: attached</code> — publishing and
+              live saves need a value while the entry uses the shared template. Entries with{" "}
+              <code className="font-mono text-[10px]">detached: true</code> skip this field (Fields UI
+              shows “Optional while detached”). JSON fields must also satisfy their schema.
+            </p>
+          ) : null}
+          <p>
+            <strong className="font-medium text-foreground">Required always (even detached)</strong>{" "}
+            <code className="font-mono text-[10px]">editor.required: true</code> — drafts may be empty;
+            publishing and live saves need a value whether attached or detached (JSON fields must also
+            satisfy their schema).
           </p>
           <p>
             Live pages also always need{" "}
             <code className="font-mono bg-muted px-1 rounded text-xs">meta.page_title</code> and{" "}
-            <code className="font-mono bg-muted px-1 rounded text-xs">meta.description</code>{" "}
-            (Meta tab / SEO) — separate from this asterisk.
+            <code className="font-mono bg-muted px-1 rounded text-xs">meta.description</code> — separate
+            from this asterisk.
           </p>
           <p className="text-xs">
             Read more:{" "}
-            <code className="font-mono text-[10px]">server/content-types.ts</code>{" "}
-            <code className="font-mono text-[10px]">editor.required</code>,{" "}
+            <code className="font-mono text-[10px]">shared/validateRequiredFields.ts</code>,{" "}
             <code className="font-mono text-[10px]">server/live-entry-seo-gate.ts</code>,{" "}
-            <code className="font-mono text-[10px]">client/src/hooks/usePageMeta.ts</code>.
+            <code className="font-mono text-[10px]">scripts/validation/validators/required-fields.ts</code>
+            , <code className="font-mono text-[10px]">server/shared-layout-detach.ts</code>.
           </p>
         </div>
-        <DialogFooter>
+        <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
@@ -726,8 +748,41 @@ function RequiredFieldConfirmDialog({
           >
             Cancel
           </Button>
-          <Button onClick={onConfirm} data-testid="button-confirm-required-field">
-            {enabling ? "Mark required" : "Remove required"}
+          <Button
+            variant={currentRequired === false ? "default" : "secondary"}
+            onClick={() => onSelect(false)}
+            data-testid="button-required-mode-none"
+            className="justify-start gap-2"
+          >
+            <span className="inline-flex w-7 justify-center opacity-40" aria-hidden>
+              <Asterisk className="h-3.5 w-3.5" />
+            </span>
+            Never required
+          </Button>
+          {allowAttachedMode ? (
+            <Button
+              variant={currentRequired === "attached" ? "default" : "secondary"}
+              onClick={() => onSelect("attached")}
+              data-testid="button-required-mode-attached"
+              className="justify-start gap-2"
+            >
+              <span className="inline-flex w-7 items-center justify-center" aria-hidden>
+                <Asterisk className="h-3.5 w-3.5" />
+                <Asterisk className="h-3.5 w-3.5 -ml-2" />
+              </span>
+              Required only on template (attached)
+            </Button>
+          ) : null}
+          <Button
+            variant={currentRequired === true ? "default" : "secondary"}
+            onClick={() => onSelect(true)}
+            data-testid="button-required-mode-always"
+            className="justify-start gap-2"
+          >
+            <span className="inline-flex w-7 justify-center" aria-hidden>
+              <Asterisk className="h-3.5 w-3.5" />
+            </span>
+            Required always (even detached)
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1087,7 +1142,7 @@ function DataSourceDialog({
           setHreflangsIsTransformer(false);
         }
       }
-      setIndexedFields(config.indexes || []);
+      setIndexedFields(stripLocaleIndexFields(config.indexes || []) || []);
 
       if (config.database?.slug && sampleItems.length === 0) {
         loadSampleFromDb(config.database.slug);
@@ -1228,7 +1283,7 @@ function DataSourceDialog({
 
       const payload = {
         field_mapping: Object.keys(fullMapping).length > 0 ? fullMapping : undefined,
-        indexes: indexedFields.length > 0 ? indexedFields : undefined,
+        indexes: stripLocaleIndexFields(indexedFields),
         database: {
           slug: selectedDb,
         },
@@ -2012,7 +2067,7 @@ function DataSourceDialog({
                     </Badge>
                   )}
                   {Object.keys(fieldMapping).filter(k => {
-                    if (k.startsWith("_") || k === localeField) return false;
+                    if (k.startsWith("_") || k === localeField || isLocaleIndexField(k)) return false;
                     // also hide any field whose source maps to the same DB column as the locale
                     if (!localeIsTransformer && localeField && fieldMapping[k] === localeField) return false;
                     return true;
@@ -2036,7 +2091,7 @@ function DataSourceDialog({
                     );
                   })}
                   {Object.keys(fieldMapping).filter(k => {
-                    if (k.startsWith("_") || k === localeField) return false;
+                    if (k.startsWith("_") || k === localeField || isLocaleIndexField(k)) return false;
                     if (!localeIsTransformer && localeField && fieldMapping[k] === localeField) return false;
                     return true;
                   }).length === 0 && !localeField && (
@@ -2516,6 +2571,13 @@ function FieldValidationMessage({
 }
 
 const KNOWN_SPECIAL_FIELDS = ["_slug", "_locale", "_hreflangs", "_updated_at", "_image"] as const;
+/** Must match server SEO_FIELD_MAPPING_KEYS — DB baselines into locale seo: (not dotted seo.*). */
+const SEO_DB_MAPPING_ROWS = [
+  { mappingKey: "seo_main_keyword", displayPath: "seo.main_keyword", label: "Main keyword", template: "{{ seo.main_keyword }}" },
+  { mappingKey: "seo_is_pillar", displayPath: "seo.is_pillar", label: "Is pillar", template: "{{ seo.is_pillar }}" },
+  { mappingKey: "seo_pillar_path", displayPath: "seo.pillar_path", label: "Pillar path", template: "{{ seo.pillar_path }}" },
+] as const;
+const SEO_DB_MAPPING_KEYS = new Set(SEO_DB_MAPPING_ROWS.map((r) => r.mappingKey));
 /** Must match server RESERVED_IMAGE_FIELD — preview/OG system special. */
 const RESERVED_IMAGE_FIELD = "_image";
 const FORBIDDEN_SCHEMA_FIELD = "image";
@@ -2581,18 +2643,18 @@ const SPECIAL_FIELD_INFO: Record<
       "Record<locale, slug> on DB types. Unused on static (read-only).",
   },
   _updated_at: {
-    title: "_updated_at — Last modified",
+    title: "_updated_at — Last content change",
     summary:
-      "System field for sitemap <lastmod>, {{ single.updated_at }}, and list item.updated_at. Exposed as updated_at on templates. Never authored in YAML.",
+      "Editorial clock for sitemap <lastmod>, {{ single.updated_at }}, Schema.org dateModified, and the manage Updated column. Last time title, meta title/description, or section copy/images changed — not Git or file mtime.",
     howItWorks: [
-      "DB types: map to the incoming date column (ISO, unix seconds/ms). Values are normalized to ISO UTC.",
-      "Static types: injected from sync-state when the locale YAML content hash changes (not on noop re-saves).",
-      "Used for sitemap lastmod (YYYY-MM-DD), Schema.org dateModified, and the Updated column on manage tables.",
-      "Ambiguous dates like 01/02/2024 are rejected — prefer ISO or unix.",
+      "Stored as top-level updated_at on the locale or variant YAML being saved ({directory}/{slug}/{locale}.yml).",
+      "Empty values resolve to published_at (first go-live on _common.yml) until this locale is saved; that save writes the seed onto the layer file.",
+      "The next real content save (title, meta.page_title, meta.description, section copy/images) sets now and overwrites a manual backdate. SEO-only / robots / redirects / og_image / reorder / layout do not bump.",
+      "Mapping key _updated_at defaults to source updated_at. Not .sync-state.json. published_at stays once-only on _common.yml.",
     ],
     howToSet: [
-      "On DB types: map to updated_at, modified_at, or a function that returns a date.",
-      "On static types: automatic — edit the locale YAML; date bumps only when file bytes change.",
+      "On DB types: map to updated_at, modified_at, or a function that returns a date. Whitelist patches stamp the mapped column.",
+      "On static types: edit content (or set/backdate updated_at here / via MCP). Next whitelist save overwrites a manual date.",
     ],
     expected: "ISO-8601 UTC string after normalize (e.g. \"2024-03-15T12:30:00.000Z\").",
   },
@@ -3078,7 +3140,7 @@ function FieldMappingDialog({
     // System specials on every type (DB and static)
     for (const key of KNOWN_SPECIAL_FIELDS) {
       if (!(key in fm)) {
-        if ((key === "_hreflangs" || key === "_updated_at") && !config.database?.slug) {
+        if (key === "_hreflangs" && !config.database?.slug) {
           fm[key] = "";
         } else if (key === "_image") {
           fm[key] = "";
@@ -3117,7 +3179,7 @@ function FieldMappingDialog({
     }
     setCustomModes(cmodes);
     setRemapModes(rmodes);
-    setIndexedFields(config.indexes || []);
+    setIndexedFields(stripLocaleIndexFields(config.indexes || []) || []);
     setEditorHints(config.editor || {});
     setUniqueFields(config.unique_fields ?? ["slug"]);
     setValidation({});
@@ -3316,15 +3378,16 @@ function FieldMappingDialog({
       const fullMapping: Record<string, string | { source: string; default: string | null }> = {};
       for (const [k, v] of Object.entries(mappings)) {
         if (FORBIDDEN_SCHEMA_FIELDS.has(k)) continue;
+        if (k.startsWith("seo.") || k === "seo.pillar") continue;
         // Static regular fields: force identity (no rename)
-        const sourceValue = !isDbBacked && !k.startsWith("_") && !transformerModes[k]
+        const sourceValue = !isDbBacked && !k.startsWith("_") && !transformerModes[k] && !SEO_DB_MAPPING_KEYS.has(k)
           ? k
           : v;
         if (sourceValue || KNOWN_SPECIAL_FIELDS.includes(k as typeof KNOWN_SPECIAL_FIELDS[number])) {
           const encoded = transformerModes[k]
             ? "function:" + btoa(sourceValue || "")
             : (optionalFields[k] && sourceValue ? "?" + sourceValue : sourceValue || "");
-          if (!k.startsWith("_") && k in fieldDefaults) {
+          if (!k.startsWith("_") && !SEO_DB_MAPPING_KEYS.has(k) && k in fieldDefaults) {
             fullMapping[k] = { source: encoded, default: fieldDefaults[k] };
           } else {
             fullMapping[k] = encoded;
@@ -3332,8 +3395,10 @@ function FieldMappingDialog({
         }
       }
 
-      const safeIndexes = indexedFields.filter(
-        (f) => f !== FORBIDDEN_SCHEMA_FIELD && f !== RESERVED_IMAGE_FIELD && !f.startsWith("_"),
+      const safeIndexes = stripLocaleIndexFields(
+        indexedFields.filter(
+          (f) => f !== FORBIDDEN_SCHEMA_FIELD && f !== RESERVED_IMAGE_FIELD && !f.startsWith("_"),
+        ),
       );
       const safeUnique = uniqueFields.filter(
         (f) => f !== FORBIDDEN_SCHEMA_FIELD && f !== RESERVED_IMAGE_FIELD && !f.startsWith("_"),
@@ -3384,7 +3449,7 @@ function FieldMappingDialog({
   };
 
   const regularKeys = Object.keys(mappings).filter(
-    (k) => !k.startsWith("_") && !FORBIDDEN_SCHEMA_FIELDS.has(k),
+    (k) => !k.startsWith("_") && !FORBIDDEN_SCHEMA_FIELDS.has(k) && !SEO_DB_MAPPING_KEYS.has(k),
   );
   const specialKeys = Array.from(
     new Set<string>([...KNOWN_SPECIAL_FIELDS, ...Object.keys(mappings).filter((k) => k.startsWith("_"))]),
@@ -3496,15 +3561,16 @@ function FieldMappingDialog({
 
   const renderSourceEditor = (
     key: string,
-    opts?: { allowEmpty?: boolean; hideOptionalToggle?: boolean },
+    opts?: { allowEmpty?: boolean; hideOptionalToggle?: boolean; hideFunctionOption?: boolean },
   ) => {
     const isFn = !!transformerModes[key];
     const isCustom = !!customModes[key];
     const isSpecial = key.startsWith("_");
+    const isSeoDbMap = SEO_DB_MAPPING_KEYS.has(key);
     const vResult = isFn ? null : validation[key];
     const currentSrc = mappings[key] || "";
     const selectOptions = mergedSourceOptions;
-    const sameNameKey = isSpecial ? null : key;
+    const sameNameKey = isSpecial || isSeoDbMap ? null : key;
     const currentInList =
       !currentSrc ||
       selectOptions.includes(currentSrc) ||
@@ -3645,9 +3711,11 @@ function FieldMappingDialog({
               <SelectItem value="__custom__" className="text-xs font-mono text-muted-foreground italic">
                 Custom path…
               </SelectItem>
-              <SelectItem value="__function__" className="text-xs font-mono text-muted-foreground italic">
-                Compute with function…
-              </SelectItem>
+              {!opts?.hideFunctionOption && (
+                <SelectItem value="__function__" className="text-xs font-mono text-muted-foreground italic">
+                  Compute with function…
+                </SelectItem>
+              )}
             </SelectContent>
           </Select>
         )}
@@ -3810,7 +3878,9 @@ function FieldMappingDialog({
                     <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ meta.* }}"}</code>.
                     Cluster strategy fields are in the SEO fields block below (
                     <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ seo.main_keyword }}"}</code>
-                    ) — not field mapping. URL / query values use{" "}
+                    ). On database-backed types you can map a DB column as the baseline (
+                    <code className="font-mono bg-muted px-1 rounded text-xs">seo_main_keyword</code> etc.);
+                    locale YAML still wins. URL / query values use{" "}
                     <code className="font-mono bg-muted px-1 rounded text-xs">{"{{ param.* }}"}</code>.
                   </p>
                   {contentType === "authors" && (
@@ -3855,8 +3925,10 @@ function FieldMappingDialog({
                     underscore forms) is auto-exposed on{" "}
                     <code className="font-mono">{"{{ single.* }}"}</code>;{" "}
                     <code className="font-mono">_hreflangs</code> is routing-only.{" "}
-                    <code className="font-mono">_updated_at</code> maps a DB date source (static:
-                    content-hash inject). Do not add fields named{" "}
+                    <code className="font-mono">_updated_at</code> is last <strong className="font-medium text-foreground">content</strong> change
+                    (title, meta title/description, section copy/images) on locale YAML{" "}
+                    <code className="font-mono">updated_at</code>
+                    — not Git. Empty uses first-publish until this locale is saved. Do not add fields named{" "}
                     <code className="font-mono">slug</code> or <code className="font-mono">image</code> — use{" "}
                     <code className="font-mono">_slug</code> / <code className="font-mono">_image</code>{" "}
                     for DB identity config.
@@ -3870,13 +3942,18 @@ function FieldMappingDialog({
                     overlays under <code className="font-mono">field_overrides</code>.
                   </p>
                   <p>
-                    Asterisk (<code className="font-mono">editor.required</code>): Required for publish —
-                    drafts may be empty; publishing requires a value; live saves cannot clear it. Live pages
-                    also always need <code className="font-mono">meta.page_title</code> and{" "}
+                    Asterisk (<code className="font-mono">editor.required</code>): single{" "}
+                    <strong className="font-medium text-foreground">*</strong> = required for
+                    publish on all live entries; double{" "}
+                    <strong className="font-medium text-foreground">**</strong> = required only
+                    when the entry uses the shared template (skipped if{" "}
+                    <code className="font-mono">detached: true</code>). Drafts may be empty; JSON
+                    fields must satisfy their schema. Live pages also always need{" "}
+                    <code className="font-mono">meta.page_title</code> and{" "}
                     <code className="font-mono">meta.description</code>. See{" "}
-                    <code className="font-mono">server/content-types.ts</code>,{" "}
+                    <code className="font-mono">shared/validateRequiredFields.ts</code>,{" "}
                     <code className="font-mono">server/live-entry-seo-gate.ts</code>,{" "}
-                    <code className="font-mono">client/src/hooks/usePageMeta.ts</code>.
+                    <code className="font-mono">scripts/validation/validators/required-fields.ts</code>.
                   </p>
                 </div>
               )}
@@ -3897,7 +3974,6 @@ function FieldMappingDialog({
                 <Label className="text-xs text-muted-foreground">System fields</Label>
                 {specialKeys.map((key) => {
                   const staticHreflangsLocked = key === "_hreflangs" && !isDbBacked;
-                  const staticUpdatedAtLocked = key === "_updated_at" && !isDbBacked;
                   const staticImageGuidance = key === "_image" && !isDbBacked;
                   const allowEmpty =
                     key === "_locale" ||
@@ -3932,16 +4008,6 @@ function FieldMappingDialog({
                         <code className="font-mono">en.yml</code>,{" "}
                         <code className="font-mono">es.yml</code>, or{" "}
                         <code className="font-mono">[lang].yml</code>.
-                      </p>
-                    ) : staticUpdatedAtLocked ? (
-                      <p
-                        className="text-[11px] text-muted-foreground flex-1 leading-snug"
-                        data-testid={`note-mapping-${key}`}
-                      >
-                        Injected from content-hash of{" "}
-                        <code className="font-mono">{"{locale}.yml"}</code> when file bytes
-                        change; not written in YAML. Use{" "}
-                        <code className="font-mono">{"{{ single.updated_at }}"}</code>.
                       </p>
                     ) : (
                       renderSourceEditor(key, {
@@ -3993,38 +4059,15 @@ function FieldMappingDialog({
                       own query. <span className="font-medium text-foreground">Is pillar</span> marks this page
                       as the hub — save fills <span className="font-medium text-foreground">Pillar path</span>{" "}
                       with this page&apos;s URL. Supporting pages set Pillar path to that hub URL (same locale
-                      prefix). Empty path means the page is not in a cluster.
+                      prefix). Missing or empty = cluster gap; <code className="font-mono text-xs">pillar_path: null</code> =
+                      intentional opt-out.
                     </p>
                     <p>
-                      These three fields live on the locale YAML <code className="font-mono text-xs">seo:</code>{" "}
-                      block, not field mapping. They cannot be deleted or remapped here. Rejected on{" "}
-                      <code className="font-mono text-xs">_common.yml</code>.
+                      Same workflow as other fields: optional database column as baseline, locale YAML{" "}
+                      <code className="font-mono text-xs">seo:</code> as the override editors write, Reset restores
+                      the database baseline (clears the YAML key only — never writes the DB). Rejected on{" "}
+                      <code className="font-mono text-xs">_common.yml</code>. Edit/Reset need a locale YAML file.
                     </p>
-                    {contentType === "blog" && (
-                      <p>
-                        Blog <code className="font-mono text-xs">cluster_keyword</code> /{" "}
-                        <code className="font-mono text-xs">cluster_url</code> below are temporary holding
-                        columns — not the hub.
-                      </p>
-                    )}
-                    <div className="space-y-1 pt-1">
-                      {(
-                        [
-                          ["seo.main_keyword", "Main keyword", "{{ seo.main_keyword }}"],
-                          ["seo.is_pillar", "Is pillar", "{{ seo.is_pillar }}"],
-                          ["seo.pillar_path", "Pillar path", "{{ seo.pillar_path }}"],
-                        ] as const
-                      ).map(([key, labelText, tmpl]) => (
-                        <div key={key} className="flex items-center gap-2">
-                          <span className="text-xs font-mono w-36 flex-shrink-0 text-right text-muted-foreground">
-                            {key}
-                          </span>
-                          <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                          <span className="text-xs text-foreground">{labelText}</span>
-                          <code className="text-[11px] font-mono text-muted-foreground">{tmpl}</code>
-                        </div>
-                      ))}
-                    </div>
                     <button
                       type="button"
                       className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"
@@ -4039,25 +4082,58 @@ function FieldMappingDialog({
                     {showSeoAdvanced && (
                       <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2 text-xs">
                         <p>
-                          Stored as nested <code className="font-mono">seo:</code> on{" "}
-                          <code className="font-mono">{"{directory}/{slug}/{locale}.yml"}</code>. Cluster graph:{" "}
-                          <code className="font-mono">{"{contentRoot}/seo-index.json"}</code> (content GitHub,
-                          like image-registry — not GCS <code className="font-mono">sync/</code>). Writer:{" "}
-                          <code className="font-mono">server/seo-fields.ts</code> /{" "}
-                          <code className="font-mono">server/seo-index.ts</code>. Constants:{" "}
-                          <code className="font-mono">KNOWN_SEO_FIELDS</code> in{" "}
-                          <code className="font-mono">server/content-types.ts</code>. Not{" "}
-                          <code className="font-mono">field_mapping</code> —{" "}
-                          <code className="font-mono">writeMappedFields</code> would write a literal{" "}
-                          <code className="font-mono">seo.main_keyword:</code> key.{" "}
-                          <code className="font-mono">markFileAsModified</code> runs after disk; auto-commit
-                          throttle already batches YAML + JSON when they share an author. Duplicate pillars:
-                          warning only, not auto-cleared. Variant edits stay off the live cluster map until
-                          promote.
+                          Templates/edits use nested <code className="font-mono">seo:</code> on{" "}
+                          <code className="font-mono">{"{directory}/{slug}/{locale}.yml"}</code> via{" "}
+                          <code className="font-mono">writeSeoFields</code>. DB baselines use{" "}
+                          <code className="font-mono">field_mapping</code> keys{" "}
+                          <code className="font-mono">seo_main_keyword</code>,{" "}
+                          <code className="font-mono">seo_is_pillar</code>,{" "}
+                          <code className="font-mono">seo_pillar_path</code> — never dotted{" "}
+                          <code className="font-mono">seo.main_keyword</code> (rejected; would break{" "}
+                          <code className="font-mono">writeMappedFields</code>). Merge:{" "}
+                          <code className="font-mono">server/seo-effective-seo.ts</code>. Index:{" "}
+                          <code className="font-mono">{"{contentRoot}/seo-index.json"}</code>. Paths:{" "}
+                          <code className="font-mono">server/seo-fields.ts</code>,{" "}
+                          <code className="font-mono">server/seo-index.ts</code>,{" "}
+                          <code className="font-mono">KNOWN_SEO_FIELDS</code> /{" "}
+                          <code className="font-mono">SEO_FIELD_MAPPING_KEYS</code> in{" "}
+                          <code className="font-mono">server/content-types.ts</code>.
                         </p>
                       </div>
                     )}
                   </div>
+                )}
+              </div>
+
+              <div className="space-y-1 pt-1" data-testid="seo-fields-mapping-rows">
+                {SEO_DB_MAPPING_ROWS.map((row) => (
+                  <div key={row.mappingKey} className="flex items-center gap-2">
+                    <span
+                      className="text-xs font-mono w-36 flex-shrink-0 text-right text-muted-foreground truncate"
+                      title={row.displayPath}
+                    >
+                      {row.displayPath}
+                    </span>
+                    <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                    {isDbBacked ? (
+                      renderSourceEditor(row.mappingKey, {
+                        allowEmpty: true,
+                        hideOptionalToggle: true,
+                        hideFunctionOption: true,
+                      })
+                    ) : (
+                      <>
+                        <span className="text-xs text-foreground">{row.label}</span>
+                        <code className="text-[11px] font-mono text-muted-foreground">{row.template}</code>
+                      </>
+                    )}
+                  </div>
+                ))}
+                {isDbBacked && (
+                  <p className="text-[11px] text-muted-foreground leading-relaxed pt-1" data-testid="seo-fields-db-baseline-note">
+                    Default from database column; locale YAML <code className="font-mono">seo:</code> overrides
+                    and is what editors write. Reset restores the database baseline.
+                  </p>
                 )}
               </div>
             </div>
@@ -4119,16 +4195,47 @@ function FieldMappingDialog({
                           {(isDbBacked || isFn || currentSrc === key || !showComputeEditor) && (
                             <FieldValidationIndicator result={vResult} optional={optionalFields[key]} />
                           )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className={`flex-shrink-0 ${editorHints[key]?.required ? "text-primary" : ""}`}
-                            title="Required for publish"
-                            onClick={() => setPendingRequiredField(key)}
-                            data-testid={`button-required-field-${key}`}
-                          >
-                            <Asterisk className="h-3.5 w-3.5" />
-                          </Button>
+                          <TooltipProvider delayDuration={200}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className={`flex-shrink-0 ${
+                                    editorHints[key]?.required === true ||
+                                    editorHints[key]?.required === "attached"
+                                      ? "text-primary"
+                                      : ""
+                                  }`}
+                                  onClick={() => setPendingRequiredField(key)}
+                                  data-testid={`button-required-field-${key}`}
+                                >
+                                  {editorHints[key]?.required === "attached" ? (
+                                    <span
+                                      className="inline-flex items-center"
+                                      aria-hidden
+                                    >
+                                      <Asterisk className="h-3.5 w-3.5" />
+                                      <Asterisk className="h-3.5 w-3.5 -ml-2" />
+                                    </span>
+                                  ) : (
+                                    <Asterisk className="h-3.5 w-3.5" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent
+                                side="top"
+                                className="text-xs"
+                                data-testid={`tooltip-required-field-${key}`}
+                              >
+                                {editorHints[key]?.required === "attached"
+                                  ? "** When attached"
+                                  : editorHints[key]?.required === true
+                                    ? "* Always required"
+                                    : "* Always · ** Attached"}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -4348,10 +4455,16 @@ function FieldMappingDialog({
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground">Indexes</Label>
               <p className="text-[11px] text-muted-foreground">
-                Indexed fields generate filter dropdowns and summary cards on the management page.
+                Indexed fields generate filter dropdowns and summary cards on the management page. Language is always indexed automatically via <code className="font-mono">_locale</code>.
               </p>
               <div className="flex items-center gap-2 flex-wrap" data-testid="section-index-toggles">
-                {regularKeys.map((field) => {
+                {mappings._locale && typeof mappings._locale === "string" && !mappings._locale.startsWith("function:") && (
+                  <Badge variant="default" className="text-xs cursor-default opacity-70 no-default-active-elevate" data-testid="badge-index-locale-auto">
+                    <Check className="h-3 w-3 mr-1" />
+                    {mappings._locale} (Language, auto)
+                  </Badge>
+                )}
+                {regularKeys.filter((field) => !isLocaleIndexField(field)).map((field) => {
                   const isIndexed = indexedFields.includes(field);
                   return (
                     <Badge
@@ -4459,21 +4572,26 @@ function FieldMappingDialog({
     <RequiredFieldConfirmDialog
       open={pendingRequiredField !== null}
       fieldName={pendingRequiredField}
-      currentlyRequired={
-        pendingRequiredField ? !!editorHints[pendingRequiredField]?.required : false
+      currentRequired={
+        pendingRequiredField
+          ? editorHints[pendingRequiredField]?.required === "attached"
+            ? "attached"
+            : editorHints[pendingRequiredField]?.required === true
+              ? true
+              : false
+          : false
       }
+      allowAttachedMode={!!config?.single_template || !!config?.database?.slug}
       onOpenChange={(next) => {
         if (!next) setPendingRequiredField(null);
       }}
-      onConfirm={() => {
+      onSelect={(nextRequired) => {
         const field = pendingRequiredField;
         if (!field) return;
         setEditorHints((prev) => {
           const cur = prev[field] || {};
-          const nextRequired = !cur.required;
-          const next = { ...cur, required: nextRequired };
-          if (!nextRequired) {
-            const { required: _r, ...rest } = next;
+          if (nextRequired === false) {
+            const { required: _r, ...rest } = cur;
             if (Object.keys(rest).length === 0) {
               const clone = { ...prev };
               delete clone[field];
@@ -4481,7 +4599,7 @@ function FieldMappingDialog({
             }
             return { ...prev, [field]: rest };
           }
-          return { ...prev, [field]: next };
+          return { ...prev, [field]: { ...cur, required: nextRequired } };
         });
         setPendingRequiredField(null);
       }}
@@ -5281,7 +5399,7 @@ export default function ContentTypeManagePage() {
     dbEditorConfig?.[fieldKey]?.type === "tags";
 
   const allIndexFields = (() => {
-    const explicit = typeConfig?.indexes || [];
+    const explicit = stripLocaleIndexFields(typeConfig?.indexes || []) || [];
     const result = [...explicit];
     if (localeKey && !result.includes(localeKey)) {
       result.push(localeKey);
@@ -5413,6 +5531,9 @@ export default function ContentTypeManagePage() {
   const hasDb = !!typeConfig?.database?.slug;
   const singleTemplateEnabled = !!typeConfig?.single_template;
   const [singleTemplateSaving, setSingleTemplateSaving] = useState(false);
+  const [seoMonitoringSaving, setSeoMonitoringSaving] = useState(false);
+  const seoMonitoringEnabled = typeConfig?.seo_monitoring?.enabled === true;
+  const requireClusterEnabled = typeConfig?.seo_monitoring?.require_cluster === true;
   const [explainSharedLayoutOpen, setExplainSharedLayoutOpen] = useState(false);
   const [explainLinkedDatabaseOpen, setExplainLinkedDatabaseOpen] = useState(false);
   const [enableSharedLayoutOpen, setEnableSharedLayoutOpen] = useState(false);
@@ -5465,6 +5586,35 @@ export default function ContentTypeManagePage() {
     } finally {
       setSingleTemplateSaving(false);
       setEnableSharedLayoutOpen(false);
+    }
+  };
+
+  const saveSeoMonitoring = async (patch: { enabled: boolean; require_cluster?: boolean }) => {
+    setSeoMonitoringSaving(true);
+    try {
+      const require_cluster =
+        patch.require_cluster ?? (patch.enabled ? requireClusterEnabled : false);
+      await apiRequest("PUT", `/api/content-types/${contentType}/config`, {
+        seo_monitoring: patch.enabled
+          ? { enabled: true, require_cluster: require_cluster }
+          : { enabled: false, require_cluster: false },
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/seo/overview"] });
+      toast({
+        title: patch.enabled ? "SEO monitoring on" : "SEO monitoring off",
+        description: patch.enabled
+          ? "This type is included in seo-index.json and Cluster Map stats."
+          : "Entries are excluded from cluster monitoring until re-enabled.",
+      });
+    } catch (err) {
+      toast({
+        title: "Failed to update SEO monitoring",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setSeoMonitoringSaving(false);
     }
   };
 
@@ -6159,6 +6309,37 @@ export default function ContentTypeManagePage() {
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+          <Card data-testid="card-kpi-seo-monitoring">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                SEO monitoring
+              </CardTitle>
+              <Switch
+                checked={seoMonitoringEnabled}
+                disabled={seoMonitoringSaving || typeConfig === undefined}
+                onCheckedChange={(checked) => void saveSeoMonitoring({ enabled: checked })}
+                data-testid="switch-seo-monitoring"
+              />
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Include entries in seo-index.json and the SEO tab Cluster Map. Omitted in config = off.
+              </p>
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <span className="text-xs text-muted-foreground">Require cluster</span>
+                <Switch
+                  checked={requireClusterEnabled}
+                  disabled={
+                    seoMonitoringSaving || !seoMonitoringEnabled || typeConfig === undefined
+                  }
+                  onCheckedChange={(checked) =>
+                    void saveSeoMonitoring({ enabled: true, require_cluster: checked })
+                  }
+                  data-testid="switch-require-cluster"
+                />
+              </div>
+            </CardContent>
+          </Card>
           <Card data-testid="card-kpi-single-template">
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -6255,6 +6436,16 @@ export default function ContentTypeManagePage() {
               </DropdownMenu>
             </CardHeader>
             <CardContent className="space-y-2">
+              {!hasDb && (
+                <Badge
+                  variant="outline"
+                  className="gap-1 text-xs font-medium text-muted-foreground no-default-active-elevate"
+                  data-testid="badge-no-database"
+                >
+                  <Database className="h-3 w-3" />
+                  No database
+                </Badge>
+              )}
               <p className="text-xs text-muted-foreground leading-relaxed">
                 {hasDb ? (
                   <>
@@ -7154,6 +7345,19 @@ export default function ContentTypeManagePage() {
                                     >
                                       <Code className="h-4 w-4 mr-2" />
                                       Edit YAML
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        void beginEditSeo(
+                                          entry.slug,
+                                          entry.locales[0] || "en",
+                                        );
+                                      }}
+                                      className="text-[13px]"
+                                      data-testid={`menu-edit-page-meta-${entry.slug}`}
+                                    >
+                                      <Pencil className="h-4 w-4 mr-2" />
+                                      Edit Page Meta
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                       onClick={() => {

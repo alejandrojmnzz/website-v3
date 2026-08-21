@@ -1,5 +1,6 @@
 import { useState, useEffect, createContext, useContext, createElement, type ReactNode } from "react";
 import { setAuthToken } from "@/lib/sessionHeaders";
+import { VIEW_ONLY_CAPABILITIES, type CapabilityName } from "@shared/capabilities";
 
 const DEBUG_SESSION_KEY = "debug_validated";
 const DEBUG_SESSION_EXPIRY_KEY = "debug_validated_expiry";
@@ -511,9 +512,10 @@ export function DebugAuthProvider({ children }: { children: ReactNode }) {
                   grantHasCapability(capabilities, "content_edit_structure") ||
                   grantHasCapability(capabilities, "content_edit_media");
 
-  // Aligns with server userStore.canMutateMetrics: any grant other than solely metrics_view.
+  // Aligns with server userStore.canMutateMetrics: view-only caps do not authorize jobs.
   const canMutateMetrics =
-    capabilities.length > 0 && capabilities.some((c) => c.name !== "metrics_view");
+    capabilities.length > 0 &&
+    capabilities.some((c) => !VIEW_ONLY_CAPABILITIES.has(c.name as CapabilityName));
 
   const value: DebugAuthValue = {
     isValidated,

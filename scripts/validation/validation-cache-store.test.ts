@@ -241,4 +241,59 @@ describe("validation issue store v5", () => {
     const byEntry = cache.getAllByEntryKey();
     expect(byEntry.get("program/draft-only/es")?.errors.length).toBe(1);
   });
+
+  it("partial section-variants clears file-only cached issues", () => {
+    const fileA = makeFile({
+      type: "program",
+      slug: "alpha",
+      locale: "en",
+      filePath: "/tmp/programs/alpha/en.yml",
+      url: "/en/alpha",
+    });
+    const templatePath = "/tmp/interactive-exercise/single.en.yml";
+
+    cache.applyValidatorResults(
+      [
+        {
+          name: "section-variants",
+          description: "section-variants",
+          status: "failed",
+          duration: 1,
+          category: "integrity",
+          errors: [
+            {
+              type: "error",
+              code: "UNKNOWN_SECTION_VARIANT",
+              message: "Unknown variant cards",
+              file: templatePath,
+              validator: "section-variants",
+            },
+          ],
+          warnings: [],
+        },
+      ],
+      { contentFiles: [fileA], entryKeys: [buildEntryKey("program", "alpha", "en")] },
+    );
+
+    expect(
+      cache.getAllIssues().some((i) => i.validator === "section-variants" && i.file === templatePath),
+    ).toBe(true);
+
+    cache.applyValidatorResults(
+      [
+        {
+          name: "section-variants",
+          description: "section-variants",
+          status: "passed",
+          duration: 1,
+          category: "integrity",
+          errors: [],
+          warnings: [],
+        },
+      ],
+      { contentFiles: [fileA], entryKeys: [buildEntryKey("program", "alpha", "en")] },
+    );
+
+    expect(cache.getAllIssues().filter((i) => i.validator === "section-variants")).toHaveLength(0);
+  });
 });

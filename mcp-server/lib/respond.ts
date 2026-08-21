@@ -138,6 +138,6 @@ export function diagnosticsAfterGoLiveNextAction(slug: string, site?: string): N
     priority: "required",
     reason:
       "Hard-refresh diagnostics for the live page (async — then poll get_diagnostics_job)",
-    args_hint: { slugs: [slug], freshness: "hard", ...(site ? { site } : {}) },
+    args_hint: { slugs: [slug], freshness: "hard", confirm: true, ...(site ? { site } : {}) },
   };
 }

@@ -9,7 +9,7 @@ import {
   getSchemaOrgRequirementGaps,
   validateHeroCourseCompanions,
 } from "../../../server/schema-org-requirements";
-import { skipLiveVariantOverlay } from "../shared/draftFiles";
+import { liveFilesForSeo } from "../shared/seoValidationScope";
 
 export const schemaOrgCompanionsValidator: Validator = {
   name: "schema-org-companions",
@@ -27,8 +27,7 @@ export const schemaOrgCompanionsValidator: Validator = {
     let heroChecked = 0;
     let ctChecked = 0;
 
-    for (const file of context.contentFiles) {
-      if (skipLiveVariantOverlay(file)) continue;
+    for (const file of liveFilesForSeo(context)) {
       const contentType = file.type;
       if (!contentType) continue;
 

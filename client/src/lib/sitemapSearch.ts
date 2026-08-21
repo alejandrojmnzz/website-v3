@@ -24,6 +24,44 @@ export function sitemapEntryKey(entry: SitemapSearchEntry, index?: number): stri
   return index == null ? key : `${key}::${index}`;
 }
 
+/** seo-index entry id: contentType/slug/locale */
+export function sitemapEntrySeoId(entry: SitemapSearchEntry): string | null {
+  const ct = entry.content_type?.trim();
+  const slug = entry.slug?.trim();
+  const locale = entry.locale?.trim();
+  if (!ct || !slug || !locale) return null;
+  return `${ct}/${slug}/${locale}`;
+}
+
+export type FilterSitemapOptions = {
+  excludePaths?: string[];
+  /** seo-index ids: contentType/slug/locale */
+  excludeIds?: string[];
+};
+
+function normalizeExcludePath(path: string): string {
+  const p = path.split("?")[0].split("#")[0] || "/";
+  return p.endsWith("/") && p.length > 1 ? p.slice(0, -1) : p;
+}
+
+function applySitemapExclusions<T extends SitemapSearchEntry>(
+  entries: T[],
+  options?: FilterSitemapOptions,
+): T[] {
+  if (!options?.excludePaths?.length && !options?.excludeIds?.length) return entries;
+  const pathSet = new Set(
+    (options.excludePaths ?? []).map((p) => normalizeExcludePath(p)),
+  );
+  const idSet = new Set(options.excludeIds ?? []);
+  return entries.filter((entry) => {
+    const path = normalizeExcludePath(sitemapPathname(entry.loc));
+    if (pathSet.has(path)) return false;
+    const id = sitemapEntrySeoId(entry);
+    if (id && idSet.has(id)) return false;
+    return true;
+  });
+}
+
 /** Keep the first row for each pathname (cloned landings often share a slug/URL). */
 export function dedupeSitemapEntries<T extends SitemapSearchEntry>(entries: T[]): T[] {
   const seen = new Set<string>();
@@ -96,8 +134,9 @@ export function sitemapMatchScore(entry: SitemapSearchEntry, query: string): num
 export function filterSitemapEntries<T extends SitemapSearchEntry>(
   entries: T[],
   query: string,
+  options?: FilterSitemapOptions,
 ): T[] {
-  const deduped = dedupeSitemapEntries(entries);
+  const deduped = applySitemapExclusions(dedupeSitemapEntries(entries), options);
   const q = query.trim();
   if (!q) return deduped;
 

@@ -23,7 +23,7 @@ vi.mock("./content-types", async (importOriginal) => {
   };
 });
 
-import { findCanonicalSoftMatch, isLivePublicUrl, resolveRedirectRequestLocale, testRedirect } from "./redirects";
+import { findCanonicalSoftMatch, inspectRedirect, isLivePublicUrl, resolveRedirectRequestLocale, testRedirect } from "./redirects";
 import { applyRedirectTraceCookie } from "./redirect-trace-cookie";
 import {
   REDIRECT_TRACE_COOKIE_NAME,
@@ -32,12 +32,14 @@ import {
   parseRedirectTraceCookie,
   type RedirectTraceHop,
 } from "@shared/redirect-trace";
-import type { contentIndex as ContentIndexType } from "./content-index";
+import type { contentIndex as ContentIndexType, RedirectEntry } from "./content-index";
 
 function makeCi(opts: {
   knownSlugs?: Record<string, { es?: string; en?: string }>;
+  redirects?: RedirectEntry[];
 }): typeof ContentIndexType {
   const knownSlugs = opts.knownSlugs ?? {};
+  const redirects = opts.redirects ?? [];
   return {
     findBySlug: (slug: string, filter?: { contentType?: string }) => {
       if (filter?.contentType && filter.contentType !== "blog") return [];
@@ -47,8 +49,8 @@ function makeCi(opts: {
     getAlternateUrls: (slug: string) => knownSlugs[slug] ?? {},
     isKnownUrl: (url: string) =>
       Object.values(knownSlugs).some((urls) => Object.values(urls).includes(url)),
-    getRedirects: () => [],
-    refreshCustomRedirects: () => [],
+    getRedirects: () => redirects,
+    refreshCustomRedirects: () => redirects,
   } as unknown as typeof ContentIndexType;
 }
 
@@ -253,6 +255,157 @@ describe("isLivePublicUrl matches Test a URL", () => {
     const ci = makeCi({ knownSlugs: {} });
     const result = testRedirect("/en/missing-page", "en", ci);
     expect(isLivePublicUrl(result)).toBe(false);
+  });
+});
+
+describe("inspectRedirect", () => {
+  it("reports /us winner from homepage en.yml without overwrites_content (locale-home alias)", () => {
+    const ci = makeCi({
+      redirects: [
+        {
+          from: "/us",
+          to: "/en/home",
+          type: "page",
+          source: "site_4geeks-com/pages/home/en.yml",
+          status: 301,
+          priority: "before",
+        },
+      ],
+    });
+    const result = inspectRedirect("/us", "en", ci);
+    expect(result.winner.match).toBe(true);
+    expect(result.winner.from).toBe("/us");
+    expect(result.winner.source).toBe("site_4geeks-com/pages/home/en.yml");
+    expect(result.live_content).toBe(false);
+    expect(result.conflicts.some((c) => c.kind === "overwrites_content")).toBe(false);
+  });
+
+  it("reports /en winner without overwrites_content (locale-home alias)", () => {
+    const ci = makeCi({
+      redirects: [
+        {
+          from: "/en",
+          to: "/en/home",
+          type: "page",
+          source: "site_4geeks-com/pages/home/en.yml",
+          status: 301,
+          priority: "before",
+        },
+      ],
+    });
+    const result = inspectRedirect("/en", "en", ci);
+    expect(result.winner.match).toBe(true);
+    expect(result.live_content).toBe(false);
+    expect(result.conflicts.some((c) => c.kind === "overwrites_content")).toBe(false);
+  });
+
+  it("flags overwrites_content when redirect source is a known content URL", () => {
+    const ci = makeCi({
+      knownSlugs: { apply: { en: "/en/apply" } },
+      redirects: [
+        {
+          from: "/en/apply",
+          to: "/en/home",
+          type: "page",
+          source: "site_4geeks-com/pages/home/en.yml",
+          status: 301,
+          priority: "before",
+        },
+      ],
+    });
+    const result = inspectRedirect("/en/apply", "en", ci);
+    expect(result.winner.match).toBe(true);
+    expect(result.live_content).toBe(true);
+    expect(result.conflicts.some((c) => c.kind === "overwrites_content")).toBe(true);
+  });
+
+  it("matches /us/foo with custom /us/(.*)", () => {
+    const ci = makeCi({
+      redirects: [
+        {
+          from: "/us/(.*)",
+          to: "/en/$1",
+          type: "custom",
+          source: "site_4geeks-com/custom-redirects.yml",
+          status: 301,
+          priority: "before",
+        },
+      ],
+    });
+    const result = inspectRedirect("/us/foo", "en", ci);
+    expect(result.winner.match).toBe(true);
+    expect(result.winner.from).toBe("/us/(.*)");
+    expect(result.winner.resolvedTo).toBe("/en/foo");
+    expect(result.winner.source).toBe("site_4geeks-com/custom-redirects.yml");
+    expect(result.conflicts.some((c) => c.kind === "overwrites_content")).toBe(false);
+  });
+
+  it("keeps one winner and flags duplicate_from", () => {
+    const ci = makeCi({
+      redirects: [
+        {
+          from: "/old-path",
+          to: "/en/a",
+          type: "page",
+          source: "site_4geeks-com/pages/a/en.yml",
+          status: 301,
+          priority: "before",
+        },
+        {
+          from: "/old-path",
+          to: "/en/b",
+          type: "custom",
+          source: "site_4geeks-com/custom-redirects.yml",
+          status: 301,
+          priority: "before",
+        },
+      ],
+    });
+    const result = inspectRedirect("/old-path", "en", ci);
+    expect(result.winner.source).toBe("site_4geeks-com/pages/a/en.yml");
+    expect(result.conflicts.filter((c) => c.kind === "duplicate_from")).toHaveLength(1);
+    expect(result.conflicts[0]?.source).toBe("site_4geeks-com/custom-redirects.yml");
+    const deleteFix = result.fixes.find((f) => f.kind === "duplicate_from");
+    expect(deleteFix?.args_hint).toMatchObject({
+      tool: "update_redirect",
+      action: "delete",
+      from: "/old-path",
+      source: "site_4geeks-com/custom-redirects.yml",
+    });
+  });
+
+  it("flags regex_shadowed with update_redirect action: move hint", () => {
+    const ci = makeCi({
+      redirects: [
+        {
+          from: "/en/(.*)",
+          to: "/x/$1",
+          type: "custom",
+          source: "site_4geeks-com/custom-redirects.yml",
+          status: 301,
+          priority: "before",
+        },
+        {
+          from: "/en/blog/(.*)",
+          to: "/y/$1",
+          type: "custom",
+          source: "site_4geeks-com/custom-redirects.yml",
+          status: 301,
+          priority: "before",
+        },
+      ],
+    });
+    const result = inspectRedirect("/en/blog/foo", "en", ci);
+    expect(result.winner.from).toBe("/en/(.*)");
+    const shadowed = result.conflicts.find((c) => c.kind === "regex_shadowed");
+    expect(shadowed?.from).toBe("/en/blog/(.*)");
+    const moveFix = result.fixes.find((f) => f.kind === "regex_shadowed");
+    expect(moveFix?.args_hint).toMatchObject({
+      tool: "update_redirect",
+      action: "move",
+      from: "/en/blog/(.*)",
+      before_from: "/en/(.*)",
+    });
   });
 });
 

@@ -21,6 +21,7 @@ import { databaseSinglesValidator } from "./database-singles";
 import { databaseHealthValidator } from "./database-health";
 import { slugConflictsValidator } from "./slug-conflicts";
 import { seoIntentValidator } from "./seo-intent";
+import { seoClusterValidator } from "./seo-cluster";
 import { imageOptimizationValidator } from "./image-optimization";
 import { heroImageTagsValidator } from "./hero-image-tags";
 import { imageTagsValidator } from "./image-tags";
@@ -61,6 +62,7 @@ export const validators: Validator[] = [
   slugConflictsValidator,
   sourceNameCollisionsValidator,
   seoIntentValidator,
+  seoClusterValidator,
   imageOptimizationValidator,
   heroImageTagsValidator,
   imageTagsValidator,
@@ -132,6 +134,7 @@ export {
   databaseHealthValidator,
   slugConflictsValidator,
   seoIntentValidator,
+  seoClusterValidator,
   imageOptimizationValidator,
   heroImageTagsValidator,
   imageTagsValidator,

@@ -11,6 +11,7 @@
 
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { getCanonicalUrl } from "../shared/canonicalUrls";
+import { skipCrossEntryVariantRow } from "../shared/draftFiles";
 
 function deriveNormalizedPath(loc: string): string {
   return loc
@@ -32,6 +33,7 @@ export const sitemapValidator: Validator = {
 
     const contentUrls = new Set<string>();
     for (const file of context.contentFiles) {
+      if (skipCrossEntryVariantRow(file)) continue;
       contentUrls.add(getCanonicalUrl(file));
     }
 
@@ -41,6 +43,7 @@ export const sitemapValidator: Validator = {
     }
 
     for (const file of context.contentFiles) {
+      if (skipCrossEntryVariantRow(file)) continue;
       const url = getCanonicalUrl(file);
       if (!sitemapUrls.has(url) && context.sitemapEntries.length > 0) {
         warnings.push({

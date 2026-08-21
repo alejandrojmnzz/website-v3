@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import {
   filterSitemapEntries,
   sitemapPathname,
+  type FilterSitemapOptions,
   type SitemapSearchEntry,
 } from "@/lib/sitemapSearch";
 import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
@@ -41,6 +42,11 @@ interface SitemapSearchProps {
   onSelectEntry?: (entry: SitemapSearchEntry, path: string) => void;
   /** Show a flag dropdown next to search so staff can switch or clear the locale filter. */
   showLocaleFilter?: boolean;
+  /** Paths and seo-index member ids to hide from results (hub, existing members). */
+  excludePaths?: string[];
+  excludeIds?: string[];
+  /** Hide custom URL mode — cluster picker only lists sitemap pages. */
+  hideCustomUrl?: boolean;
 }
 
 interface SitemapResultRowProps {
@@ -262,6 +268,9 @@ export function SitemapSearch({
   onClose,
   onSelectEntry,
   showLocaleFilter = false,
+  excludePaths,
+  excludeIds,
+  hideCustomUrl = false,
 }: SitemapSearchProps) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -288,9 +297,14 @@ export function SitemapSearch({
     },
   });
 
+  const filterOptions = useMemo((): FilterSitemapOptions | undefined => {
+    if (!excludePaths?.length && !excludeIds?.length) return undefined;
+    return { excludePaths, excludeIds };
+  }, [excludePaths, excludeIds]);
+
   const filteredUrls = useMemo(
-    () => filterSitemapEntries(sitemapUrls, searchQuery),
-    [sitemapUrls, searchQuery],
+    () => filterSitemapEntries(sitemapUrls, searchQuery, filterOptions),
+    [sitemapUrls, searchQuery, filterOptions],
   );
 
   const isCurrentValueInSitemap = sitemapUrls.some((entry) => sitemapPathname(entry.loc) === value);
@@ -416,7 +430,7 @@ export function SitemapSearch({
             )}
           </ScrollArea>
 
-          {!onSelectEntry ? (
+          {!onSelectEntry && !hideCustomUrl ? (
             <div className="p-2 border-t">
               <button
                 onClick={() => {

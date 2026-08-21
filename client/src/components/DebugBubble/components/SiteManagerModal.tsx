@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { IconServer } from "@tabler/icons-react";
-import { AlertCircle, Check, Loader2, Pencil, Plus, Power, RefreshCw, X } from "lucide-react";
+import { AlertCircle, Check, FileText, Loader2, Pencil, Plus, Power, RefreshCw, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +26,8 @@ import { getDebugToken } from "@/hooks/useDebugAuth";
 import { useHardRestart } from "@/hooks/useHardRestart";
 import { useToast } from "@/hooks/use-toast";
 import { setDevSiteOverride, stashPendingDomainNavigation } from "@/lib/devSite";
+
+const SitesYmlViewerPanel = lazy(() => import("@/components/editing/SitesYmlViewerPanel"));
 
 const IS_PROD = import.meta.env.PROD;
 
@@ -225,11 +227,14 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
   const [renamedTargetDomain, setRenamedTargetDomain] = useState<string | null>(null);
   const [pendingDomainRename, setPendingDomainRename] = useState<{ from: string; to: string } | null>(null);
   const [displaySiteInfo, setDisplaySiteInfo] = useState<SiteInfo | null>(null);
+  const [showSitesYml, setShowSitesYml] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { phase: restartPhase, message: restartMessage, start: startRestart, reset: resetRestart } = useHardRestart();
   const currentSiteInfo = displaySiteInfo ?? siteInfo ?? null;
-  const siteManagerDialogOpen = open && !domainConfirmOpen && !restartConfirmOpen && !domainReloadActive;
+  // Hide dialog while sites.yml side panel is open (dialog overlay is z-[10000], panel is z-[9999]).
+  const siteManagerDialogOpen =
+    open && !domainConfirmOpen && !restartConfirmOpen && !domainReloadActive && !showSitesYml;
 
   const refreshMutation = useMutation<RefreshConfigResult, Error>({
     mutationFn: async () => {
@@ -361,6 +366,7 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
       setDomainReloadActive(false);
       setRenamedTargetDomain(null);
       setPendingDomainRename(null);
+      setShowSitesYml(false);
       resetRestart();
     }
     onOpenChange(v);
@@ -390,7 +396,12 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
         Site created successfully
       </div>
       <div className="text-xs text-muted-foreground space-y-2">
-        <p>Folder: <code className="font-mono bg-muted px-1 py-0.5 rounded">{successResult.folderName}/</code></p>
+          <p>
+            Folder: <code className="font-mono bg-muted px-1 py-0.5 rounded">{successResult.folderName}/</code>
+            — pages live under <code className="font-mono">pages/{"{slug}"}/en.yml</code>.
+            Components come from the parent site via <code className="font-mono">inherit_components_from</code>
+            {" "}(this folder has no <code className="font-mono">component-registry/</code>).
+          </p>
 
         {successResult.githubSeed?.success && (
           <p className="text-foreground">
@@ -497,6 +508,24 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
         <p className="text-[11px] text-muted-foreground">Alphanumeric and hyphens only. Will create folder <code className="font-mono">site_{folderName || "…"}/</code>.</p>
       </div>
 
+      <div className="rounded-md border border-border bg-muted/30 px-3 py-2 space-y-1.5 text-[11px] text-foreground">
+        <p>
+          New sites inherit the default site&apos;s component library (
+          <code className="font-mono text-[10px]">inherit_components_from</code>
+          ) and must not create a local <code className="font-mono text-[10px]">component-registry/</code>.
+          Sample content uses folder layout: <code className="font-mono text-[10px]">pages/{"{slug}"}/en.yml</code>
+          (not <code className="font-mono text-[10px]">about.en.yml</code>). Home is served at{" "}
+          <code className="font-mono text-[10px]">/en</code> via <code className="font-mono text-[10px]">home_page</code>.
+        </p>
+        <p className="text-muted-foreground">
+          Images use a separate field (<code className="font-mono text-[10px]">fallback_content_folder</code>);
+          create defaults both to the same parent. Advanced:{" "}
+          <code className="font-mono text-[10px]">server/site-scaffold.ts</code>,{" "}
+          <code className="font-mono text-[10px]">shared/registry-resolve.ts</code>,{" "}
+          <code className="font-mono text-[10px]">sites.yml.example</code>.
+        </p>
+      </div>
+
       <div className="space-y-2">
         <Label htmlFor="site-domain" className="text-xs">Primary domain</Label>
         <Input
@@ -524,7 +553,10 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
       <div className="flex items-center justify-between py-1">
         <div>
           <Label htmlFor="site-sample-content" className="text-xs">Include sample content</Label>
-          <p className="text-[11px] text-muted-foreground">Adds an about page and a sample blog post.</p>
+          <p className="text-[11px] text-muted-foreground">
+            Adds <code className="font-mono">pages/about/en.yml</code> and{" "}
+            <code className="font-mono">blog/sample-post/en.yml</code>.
+          </p>
         </div>
         <Switch
           id="site-sample-content"
@@ -576,6 +608,15 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
         {view === "config" ? (
           <div className="space-y-3">
             <div className="flex items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowSitesYml(true)}
+                data-testid="button-view-sites-yml"
+              >
+                <FileText className="h-3.5 w-3.5 mr-1.5" />
+                View YAML
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -740,6 +781,19 @@ export function SiteManagerModal({ open, onOpenChange, siteInfo }: SiteManagerMo
           </div>
         </AlertDialogContent>
       </AlertDialog>
+
+      {showSitesYml && (
+        <Suspense fallback={null}>
+          <SitesYmlViewerPanel
+            onClose={() => setShowSitesYml(false)}
+            onSaved={() => {
+              void queryClient.invalidateQueries({ queryKey: ["/api/site/info"] });
+              void queryClient.invalidateQueries({ queryKey: ["/api/sites"] });
+              setDisplaySiteInfo(null);
+            }}
+          />
+        </Suspense>
+      )}
     </>
   );
 }

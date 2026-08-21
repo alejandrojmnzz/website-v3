@@ -6,7 +6,6 @@
 import * as fs from "fs";
 import * as path from "path";
 import {
-  getAllConfigs,
   getFolder,
 } from "./content-types";
 import type { ContentIndex } from "./content-index";
@@ -15,12 +14,55 @@ import { getDefaultContentRoot } from "./site-config";
 import { markFileAsModified } from "./sync-state";
 import { child } from "./logger";
 import {
+  hasEffectiveSeoSignal,
+  isPillarPathExplicitlyNull,
+  itemLocale,
+  localeYamlRelPath,
+  resolveEffectiveSeo,
+} from "./seo-effective-seo";
+import { isSeoMonitoringEnabled } from "./seo-monitoring";
+import {
+  contentRootAbs as monitoredContentRootAbs,
+  dbItemKey,
+  listMonitoredNoSeoSignalGaps,
+  loadMonitoredDbItemsForRebuild,
+  scanLiveLocaleFiles,
+  slugFromDbItem,
+} from "./seo-monitored-scan";
+import {
+  classifyClusterEntry,
+  computeClusterHealth as computeClusterHealthBuckets,
+  listBrokenClusterRefs,
+  listClusterBucketEntries as listClusterBucketEntriesCore,
+  type BrokenClusterRefReason,
+  type BrokenClusterRefRow,
+  type ClusterBucket,
+  type ClusterBucketEntryRow,
+  type ClusterFilterBucket,
+  type ClusterHealth,
+  type ListClusterBucketEntriesResult,
+} from "./seo-cluster-stats";
+export {
+  classifyClusterEntry,
+  listBrokenClusterRefs,
+  isClusterFilterBucket,
+  CLUSTER_FILTER_BUCKETS,
+  type BrokenClusterRefReason,
+  type BrokenClusterRefRow,
+  type ClusterBucket,
+  type ClusterBucketEntryRow,
+  type ClusterFilterBucket,
+  type ClusterHealth,
+  type ListClusterBucketEntriesResult,
+} from "./seo-cluster-stats";
+import {
   canonicalizePillarPath,
   entryCanonicalPath,
   mergeSeoUpdates,
   migrateMainKeywordInYamlText,
   normalizeSeoBlock,
   readSeoBlockFromYamlText,
+  seoFieldFromPath,
   surgicalReplaceSeoBlock,
   validateSeoSave,
   yamlHasSeoKey,
@@ -54,8 +96,7 @@ export type WriteSeoFieldsResult =
     };
 
 function contentRootAbs(contentRoot?: string): string {
-  const raw = contentRoot ?? getDefaultContentRoot();
-  return path.isAbsolute(raw) ? raw : path.join(process.cwd(), raw);
+  return monitoredContentRootAbs(contentRoot);
 }
 
 function localeFilePath(
@@ -104,6 +145,8 @@ export type SeoIndexEntry = {
   is_pillar: boolean;
   pillar_path: string | null;
   pillar_live: boolean | null;
+  /** Explicit seo.pillar_path: null opt-out on locale YAML. */
+  pillar_opted_out?: boolean;
 };
 
 export type SeoIndexCluster = {
@@ -146,9 +189,21 @@ function emptyIndex(rebuilt = false): SeoIndex {
 }
 
 function hasSeoSignal(seo: SeoBlock): boolean {
-  const kw = typeof seo.main_keyword === "string" && seo.main_keyword.trim();
-  const pathVal = typeof seo.pillar_path === "string" && seo.pillar_path.trim();
-  return Boolean(kw || pathVal || seo.is_pillar === true);
+  return hasEffectiveSeoSignal(seo);
+}
+
+function indexEntryFromSeo(opts: {
+  contentType: string;
+  slug: string;
+  locale: string;
+  file: string;
+  seo: SeoBlock;
+  pillarLive: boolean | null;
+  ci: ContentIndex;
+}): SeoIndexEntry {
+  const row = rowFromSeo(opts);
+  row.pillar_opted_out = isPillarPathExplicitlyNull(opts.seo);
+  return row;
 }
 
 function recomputeGraph(index: SeoIndex): void {
@@ -268,7 +323,12 @@ function rowFromSeo(opts: {
     path: selfPath,
     main_keyword: typeof opts.seo.main_keyword === "string" ? opts.seo.main_keyword : null,
     is_pillar: opts.seo.is_pillar === true,
-    pillar_path: typeof opts.seo.pillar_path === "string" ? opts.seo.pillar_path : null,
+    pillar_path:
+      opts.seo.pillar_path === null
+        ? null
+        : typeof opts.seo.pillar_path === "string"
+          ? opts.seo.pillar_path
+          : null,
     pillar_live: opts.pillarLive,
   };
 }
@@ -302,7 +362,7 @@ export function patchSeoIndexAfterLiveWrite(opts: {
   if (!hasSeoSignal(opts.seo)) {
     delete index.entries[id];
   } else {
-    index.entries[id] = rowFromSeo({
+    index.entries[id] = indexEntryFromSeo({
       contentType: opts.contentType,
       slug: opts.slug,
       locale: opts.locale,
@@ -324,51 +384,44 @@ export function patchSeoIndexAfterLiveWrite(opts: {
   return { indexPath, rebuilt };
 }
 
-function scanLiveLocaleFiles(contentRoot?: string): Array<{
-  contentType: string;
-  slug: string;
-  locale: string;
-  absPath: string;
-  relFile: string;
-}> {
-  const root = contentRoot
-    ? path.isAbsolute(contentRoot)
-      ? contentRoot
-      : path.join(process.cwd(), contentRoot)
-    : path.isAbsolute(getDefaultContentRoot())
-      ? getDefaultContentRoot()
-      : path.join(process.cwd(), getDefaultContentRoot());
-  const out: Array<{
+function ingestMonitoredSeoEntry(
+  index: SeoIndex,
+  opts: {
     contentType: string;
     slug: string;
     locale: string;
-    absPath: string;
-    relFile: string;
-  }> = [];
-  const configs = getAllConfigs(contentRoot);
-  for (const [contentType, cfg] of Object.entries(configs)) {
-    const dirName = cfg.directory || getFolder(contentType, contentRoot);
-    const typeDir = path.join(root, dirName);
-    if (!fs.existsSync(typeDir)) continue;
-    for (const slugEnt of fs.readdirSync(typeDir, { withFileTypes: true })) {
-      if (!slugEnt.isDirectory() || slugEnt.name.startsWith("_")) continue;
-      const slugDir = path.join(typeDir, slugEnt.name);
-      for (const file of fs.readdirSync(slugDir)) {
-        if (!LIVE_LOCALE_FILE.test(file)) continue;
-        const locale = file.replace(/\.ya?ml$/i, "").toLowerCase();
-        const absPath = path.join(slugDir, file);
-        const relFile = path.relative(root, absPath).split(path.sep).join("/");
-        out.push({
-          contentType,
-          slug: slugEnt.name,
-          locale,
-          absPath,
-          relFile,
-        });
-      }
+    file: string;
+    seo: SeoBlock;
+    ci: ContentIndex;
+  },
+): void {
+  if (!hasSeoSignal(opts.seo)) return;
+
+  let seo = opts.seo;
+  let pillarLive: boolean | null = null;
+  if (typeof seo.pillar_path === "string" && seo.pillar_path.trim()) {
+    const canon = canonicalizePillarPath(seo.pillar_path, opts.locale, opts.ci);
+    seo = { ...seo, pillar_path: canon.path };
+    pillarLive = canon.live;
+    if (!canon.live) {
+      index.warnings.push({
+        code: "pillar_not_live",
+        entry: seoEntryId(opts.contentType, opts.slug, opts.locale),
+        pillar_path: canon.path,
+      });
     }
   }
-  return out;
+
+  const id = seoEntryId(opts.contentType, opts.slug, opts.locale);
+  index.entries[id] = indexEntryFromSeo({
+    contentType: opts.contentType,
+    slug: opts.slug,
+    locale: opts.locale,
+    file: opts.file,
+    seo,
+    pillarLive,
+    ci: opts.ci,
+  });
 }
 
 export function rebuildSeoIndex(opts?: {
@@ -379,16 +432,16 @@ export function rebuildSeoIndex(opts?: {
   mark?: boolean;
 }): SeoIndex {
   const ci = opts?.ci ?? contentIndex;
+  const contentRoot = contentRootAbs(opts?.contentRoot);
   const index = emptyIndex(true);
+  const seenIds = new Set<string>();
+
+  const dbItemsByType = loadMonitoredDbItemsForRebuild(opts?.contentRoot);
+
   const files = scanLiveLocaleFiles(opts?.contentRoot);
   for (const f of files) {
-    let text: string;
-    try {
-      text = fs.readFileSync(f.absPath, "utf-8");
-    } catch {
-      continue;
-    }
-    if (path.basename(f.absPath).startsWith("_")) continue;
+    if (!isSeoMonitoringEnabled(f.contentType, opts?.contentRoot)) continue;
+
     const commonPath = path.join(path.dirname(f.absPath), "_common.yml");
     if (fs.existsSync(commonPath) && yamlHasSeoKey(fs.readFileSync(commonPath, "utf-8"))) {
       index.warnings.push({
@@ -397,32 +450,56 @@ export function rebuildSeoIndex(opts?: {
         message: "_common.yml has a seo: block; locale-only is required.",
       });
     }
-    const seo = normalizeSeoBlock(readSeoBlockFromYamlText(text));
-    if (!hasSeoSignal(seo)) continue;
-    let pillarLive: boolean | null = null;
-    if (typeof seo.pillar_path === "string" && seo.pillar_path.trim()) {
-      const canon = canonicalizePillarPath(seo.pillar_path, f.locale, ci);
-      seo.pillar_path = canon.path;
-      pillarLive = canon.live;
-      if (!canon.live) {
-        index.warnings.push({
-          code: "pillar_not_live",
-          entry: seoEntryId(f.contentType, f.slug, f.locale),
-          pillar_path: canon.path,
-        });
-      }
-    }
+
+    const dbItem = dbItemsByType.get(f.contentType)?.get(dbItemKey(f.slug, f.locale));
+    const seo = resolveEffectiveSeo({
+      contentType: f.contentType,
+      slug: f.slug,
+      locale: f.locale,
+      contentRoot,
+      dbItem: dbItem ?? null,
+    });
+
     const id = seoEntryId(f.contentType, f.slug, f.locale);
-    index.entries[id] = rowFromSeo({
+    ingestMonitoredSeoEntry(index, {
       contentType: f.contentType,
       slug: f.slug,
       locale: f.locale,
       file: f.relFile,
       seo,
-      pillarLive,
       ci,
     });
+    if (index.entries[id]) seenIds.add(id);
   }
+
+  for (const [contentType, byKey] of dbItemsByType) {
+    for (const [, item] of byKey) {
+      const slug = slugFromDbItem(item);
+      if (!slug) continue;
+      const locale = itemLocale(item, contentType, contentRoot);
+      const id = seoEntryId(contentType, slug, locale);
+      if (seenIds.has(id)) continue;
+
+      const relFile = localeYamlRelPath(contentType, slug, locale, contentRoot);
+      const seo = resolveEffectiveSeo({
+        contentType,
+        slug,
+        locale,
+        contentRoot,
+        dbItem: item,
+      });
+      ingestMonitoredSeoEntry(index, {
+        contentType,
+        slug,
+        locale,
+        file: relFile,
+        seo,
+        ci,
+      });
+      if (index.entries[id]) seenIds.add(id);
+    }
+  }
+
   recomputeGraph(index);
   saveSeoIndex(index, {
     contentRoot: opts?.contentRoot,
@@ -431,9 +508,45 @@ export function rebuildSeoIndex(opts?: {
   });
   log.info(
     { reason: opts?.reason, entries: Object.keys(index.entries).length },
-    "seo-index rebuilt from YAML",
+    "seo-index rebuilt",
   );
   return index;
+}
+
+/** Cluster health including monitored pages with no SEO signal as Unclustered. */
+export function computeClusterHealth(
+  index: SeoIndex,
+  ci: ContentIndex = contentIndex,
+  contentRoot?: string,
+): ClusterHealth {
+  const gaps = listMonitoredNoSeoSignalGaps(contentRoot);
+  return computeClusterHealthBuckets(index, ci, gaps);
+}
+
+/** Paginated cluster-bucket entries including monitored no-signal gaps for Unclustered. */
+export function listClusterBucketEntries(
+  index: SeoIndex,
+  opts: {
+    bucket: ClusterFilterBucket;
+    q?: string;
+    page?: number;
+    pageSize?: number;
+    ci?: ContentIndex;
+    contentRoot?: string;
+  },
+): ListClusterBucketEntriesResult {
+  const gaps =
+    opts.bucket === "unclustered"
+      ? listMonitoredNoSeoSignalGaps(opts.contentRoot)
+      : [];
+  return listClusterBucketEntriesCore(index, {
+    bucket: opts.bucket,
+    q: opts.q,
+    page: opts.page,
+    pageSize: opts.pageSize,
+    ci: opts.ci,
+    noSignalGaps: gaps,
+  });
 }
 
 export function getClusterFromIndex(
@@ -620,6 +733,120 @@ export function writeSeoFields(opts: {
     warnings: validated.warnings,
     indexRebuilt,
     memberFiles: memberFiles.map(relativeFromCwd),
+  };
+}
+
+/**
+ * Remove one key from locale `seo:` (overlay reset). Falls through to DB baseline via
+ * resolveEffectiveSeo for the index patch. Does not write the database.
+ */
+export function resetSeoOverlayField(opts: {
+  contentType: string;
+  slug: string;
+  locale: string;
+  fieldPath: string;
+  author?: string;
+  contentRoot?: string;
+  variant?: string | null;
+  dbItem?: Record<string, unknown> | null;
+  ci?: ContentIndex;
+}): WriteSeoFieldsResult & { noop?: boolean } {
+  const field = seoFieldFromPath(opts.fieldPath);
+  if (!field) {
+    return {
+      success: false,
+      error: `Unknown seo field: ${opts.fieldPath}`,
+      statusCode: 400,
+      code: "seo_unknown_field",
+    };
+  }
+
+  const contentRoot = opts.contentRoot ?? getDefaultContentRoot();
+  const ci = opts.ci ?? contentIndex;
+  const filePath = localeFilePath(opts.contentType, opts.slug, opts.locale, contentRoot, opts.variant);
+  if (!fs.existsSync(filePath)) {
+    return {
+      success: false,
+      error: `Locale file not found: ${relativeFromCwd(filePath)}`,
+      statusCode: 404,
+      code: "seo_file_missing",
+    };
+  }
+
+  const original = fs.readFileSync(filePath, "utf-8");
+  const current = readSeoBlockFromYamlText(original);
+  if (!Object.prototype.hasOwnProperty.call(current, field)) {
+    return {
+      success: true,
+      noop: true,
+      relativePath: relativeFromCwd(filePath),
+      filePath,
+      isVariantLayer: !isLiveLocaleBasename(filePath),
+      error: `Nothing to reset — "${opts.fieldPath}" is not set on this locale seo: block.`,
+    };
+  }
+
+  const nextBlock: SeoBlock = { ...current };
+  delete nextBlock[field];
+  // Drop undefined leftovers; keep explicit nulls
+  const cleaned: SeoBlock = {};
+  for (const [k, v] of Object.entries(nextBlock)) {
+    if (v !== undefined) cleaned[k] = v;
+  }
+
+  const nextYaml = surgicalReplaceSeoBlock(original, cleaned);
+  const isVariant = !isLiveLocaleBasename(filePath);
+  const filesToMark: string[] = [];
+  if (nextYaml !== original) {
+    fs.writeFileSync(filePath, nextYaml, "utf-8");
+    filesToMark.push(filePath);
+  }
+
+  let indexRebuilt = false;
+  if (!isVariant) {
+    const effective = resolveEffectiveSeo({
+      contentType: opts.contentType,
+      slug: opts.slug,
+      locale: opts.locale,
+      contentRoot,
+      dbItem: opts.dbItem ?? null,
+    });
+    const commonPath = commonFilePath(opts.contentType, opts.slug, contentRoot);
+    const commonYaml = fs.existsSync(commonPath) ? fs.readFileSync(commonPath, "utf-8") : null;
+    const validated = validateSeoSave({
+      next: effective,
+      locale: opts.locale,
+      contentType: opts.contentType,
+      slug: opts.slug,
+      ci,
+      commonYaml,
+    });
+    const seoForIndex = validated.ok ? validated.coerced : effective;
+    const pillarLive = validated.ok ? validated.pillarLive : null;
+    const patch = patchSeoIndexAfterLiveWrite({
+      contentRoot,
+      contentType: opts.contentType,
+      slug: opts.slug,
+      locale: opts.locale,
+      file: path.relative(contentRootAbs(contentRoot), filePath).split(path.sep).join("/"),
+      seo: seoForIndex,
+      pillarLive,
+      ci,
+    });
+    indexRebuilt = patch.rebuilt;
+    if (patch.indexPath) filesToMark.push(patch.indexPath);
+  }
+
+  for (const f of Array.from(new Set(filesToMark))) {
+    markFileAsModified(f, opts.author, undefined, contentRoot);
+  }
+
+  return {
+    success: true,
+    relativePath: relativeFromCwd(filePath),
+    filePath,
+    isVariantLayer: isVariant,
+    indexRebuilt,
   };
 }
 

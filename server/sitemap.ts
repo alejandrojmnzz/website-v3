@@ -1,8 +1,7 @@
 import { contentIndex, MARKETING_CONTENT_PATH as BASE_CONTENT_PATH } from "./content-index";
-import { getContentTypeConfig, getLocaleKey, getLocaleSource, getFieldMapping, getFullFieldMapping, getFieldMappingDefaults, resolveUrlPatternWithMapping, extractUrlPatternParams, getAllConfigs, getDirectory, resolveHreflangsFromRecord, getCanonicalHreflangSlug, resolveEntryUpdatedAt } from "./content-types";
+import { getContentTypeConfig, getLocaleKey, getLocaleSource, getFieldMapping, getFullFieldMapping, getFieldMappingDefaults, resolveUrlPatternWithMapping, extractUrlPatternParams, getAllConfigs, resolveHreflangsFromRecord, getCanonicalHreflangSlug, resolveEntryUpdatedAt } from "./content-types";
 import { getSupportedLocales, isIndexingBlocked } from "./settings";
 import { applyTransformIfNeeded } from "./transform";
-import { getFileLastmod } from "./sync-state";
 import { toSitemapLastmod } from "@shared/normalizeFlexibleDate";
 import { databaseManager, type DatabaseManager } from "./database";
 import { child } from "./logger";
@@ -97,7 +96,7 @@ type EntryType =
 
 interface CanonicalSitemapEntry {
   loc: string;
-  lastmod: string;
+  lastmod?: string;
   label: string;
   type: EntryType;
   locale?: string;
@@ -300,24 +299,23 @@ function resolveSitemapContentRoot(ctx?: ActiveSiteCtx): string {
   return path.isAbsolute(name) ? name : path.join(process.cwd(), name);
 }
 
-function getCurrentDate(): string {
-  return new Date().toISOString().split("T")[0];
-}
-
 function formatLocaleLabel(locale: string): string {
   return locale === "es" ? "ES" : "EN";
 }
 
 /**
- * Get the best lastmod date for a YML-based content entry.
- * Resolves the content file path and delegates to getFileLastmod from sync-state.
- * Falls back to today's date when no sync data exists.
+ * Editorial lastmod (YYYY-MM-DD) from locale YAML `updated_at` else `published_at`.
+ * Empty when neither is set — callers omit `<lastmod>` rather than using today.
  */
 function getYmlFileLastmod(contentType: string, dirSlug: string, locale: string): string {
-  const directory = getDirectory(contentType, _contentFolder());
-  const folder = _contentFolder();
-  const filePath = `${folder}/${directory}/${dirSlug}/${locale}.yml`;
-  return getFileLastmod(filePath, _activeSiteCtx?.contentRootName);
+  const iso = resolveEntryUpdatedAt({
+    contentType,
+    slug: dirSlug,
+    locale,
+    contentRoot: _activeSiteCtx?.contentRootName ?? _contentFolder(),
+    isDb: false,
+  });
+  return toSitemapLastmod(iso, false);
 }
 
 /**
@@ -347,26 +345,14 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
   const db = ctx?.database ?? databaseManager;
   const cf = ctx?.contentRootName ?? getDefaultContentFolder();
 
-  const today = getCurrentDate();
   const entriesMap = new Map<string, CanonicalSitemapEntry>();
 
   const addEntry = (entry: CanonicalSitemapEntry) => {
     entriesMap.set(buildMapKey(entry), entry);
   };
 
-  // Static pages (no YML file — use today as fallback)
-  const staticPages: Array<{ path: string; label: string }> = [
-    { path: "/", label: "Home" },
-  ];
-
-  for (const page of staticPages) {
-    addEntry({
-      loc: `${getBaseUrl(ctx)}${page.path}`,
-      lastmod: today,
-      label: page.label,
-      type: "static",
-    });
-  }
+  // Homes come from template/content pages only (e.g. /en/home, /es/inicio).
+  // Do not invent a static "/" — locale-root aliases 301 to those canonicals.
 
   // Dynamic career program pages
   const programs = getAvailablePrograms(ci);
@@ -494,9 +480,10 @@ function buildCanonicalSitemapEntries(ctx?: ActiveSiteCtx): Map<string, Canonica
           : itemSlug
             ? `${typeName}:${itemSlug}`
             : undefined;
+        const lastmod = toSitemapLastmod(updatedIso, false);
         addEntry({
           loc: itemUrl,
-          lastmod: toSitemapLastmod(updatedIso),
+          ...(lastmod ? { lastmod } : {}),
           label: `${typeLabel}: ${title} (${formatLocaleLabel(locale)})`,
           type: "static",
           locale,
@@ -625,8 +612,7 @@ function entriesToXml(entries: CanonicalSitemapEntry[]): string {
         alternateLines = "\n" + lines.join("\n");
       }
       return `  <url>
-    <loc>${entry.loc}</loc>
-    <lastmod>${entry.lastmod}</lastmod>${alternateLines}
+    <loc>${entry.loc}</loc>${entry.lastmod ? `\n    <lastmod>${entry.lastmod}</lastmod>` : ""}${alternateLines}
   </url>`;
     })
     .join("\n");
@@ -804,12 +790,7 @@ export function getDebugSitemapUrls(ctx?: ActiveSiteCtx): DebugSitemapUrl[] {
       });
     };
 
-    // Home
-    emit({
-      loc: `${base}/`,
-      label: "Home",
-      indexable: true,
-    });
+    // Homes come from template pages below (e.g. /en/home, /es/inicio), not a static "/".
 
     // Programs
     {

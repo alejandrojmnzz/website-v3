@@ -9,7 +9,11 @@ export const ctaTrackingSchema = z.enum(["none", "add_to_cart", "click_begin_che
 
 export const ctaButtonSchema = z.object({
   text: z.string(),
-  url: z.string(),
+  url: z
+    .string()
+    .describe(
+      "Link target: path (/en/…), https://…, #section_id (modal if type:modal else scroll), #top/#bottom, or inline#section_id. Agents: explain_site topic sections.",
+    ),
   variant: z.enum(["primary", "secondary", "outline"]),
   /**
    * Ecommerce CTA intent. Required on field-editor `cta-tracking` paths (save-time).
@@ -70,6 +74,23 @@ export const imageWithStyleSchema = z.object({
 
 export type ImageWithStyle = z.infer<typeof imageWithStyleSchema>;
 
+export const leadFormComponentRendererSchema = z.enum([
+  "text",
+  "phone",
+  "textarea",
+  "select",
+  "cards",
+  "simple-list",
+  "grouped-list",
+]);
+
+/** Optional marketing overlays / extra choices merged by `value` over form-options pools. */
+export const leadFormFieldOptionSchema = z
+  .object({
+    value: z.string(),
+  })
+  .passthrough();
+
 /** Catalog or this-entry-field options source for choice fields. Object only. */
 export const leadFormFieldSourceSchema = z
   .object({
@@ -109,8 +130,17 @@ export const leadFormFieldConfigSchema = z.object({
   placeholder: z.string().optional(),
   show_label: z.boolean().optional(),
   label: z.string().optional(),
-  slugs: z.array(z.string()).optional(), // Legacy when source is omitted
+  slugs: z.array(z.string()).optional(), // Legacy: limits which programs appear when source is omitted
+  /**
+   * Options source: catalog content_type/database (/api/query-options) or
+   * related_field (this entry’s CT field). Requires value_path and label_path.
+   * When set, runtime cardinality overrides authored visible/default/required.
+   */
   source: leadFormFieldSourceSchema.optional(),
+  /** How the field is shown. Omitting uses LeadForm runtime defaults (email→text, program→select, …). */
+  component_renderer: leadFormComponentRendererSchema.optional(),
+  /** Merge by `value` over pool options (programs/locations/source). Passthrough for label/description/group/cta/icon. */
+  options: z.array(leadFormFieldOptionSchema).optional(),
 });
 
 // Webhook configuration — used at form-level, per-event, and global tracking level
@@ -141,6 +171,7 @@ export const leadFormDataSchema = z.object({
     region: leadFormFieldConfigSchema.optional(),
     location: leadFormFieldConfigSchema.optional(),
     coupon: leadFormFieldConfigSchema.optional(),
+    referral_key: leadFormFieldConfigSchema.optional(),
     client_comments: leadFormFieldConfigSchema.optional(),
   }).optional(),
   success: z.object({

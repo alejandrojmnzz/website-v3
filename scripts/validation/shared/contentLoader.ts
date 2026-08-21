@@ -5,15 +5,13 @@
  * entirely to ContentIndex, which is the single source of truth for content
  * merging (_common.single.yml → _common.yml → locale.yml).
  *
- * Previously this module read individual YAML files in isolation, which caused
- * false-positive validation errors for fields inherited from parent files
- * (schema, meta, etc.). Now it reuses the same merge logic used at serve-time.
- *
- * Unpublished draft-only folders are skipped by ContentIndex (no live locale
- * files). They are appended here so diagnostics and sitemap badges can score
- * them without making drafts publicly routable.
+ * Also loads published A/B variants (allocation > 0) as separate ContentFiles
+ * with `variant` set so entry-local validators score them independently.
  */
 
+import * as fs from "fs";
+import * as path from "path";
+import * as yaml from "js-yaml";
 import { contentIndex as defaultContentIndex } from "../../../server/content-index";
 import type { ContentIndex } from "../../../server/content-index";
 import {
@@ -28,6 +26,11 @@ import {
 } from "../../../server/draft-entry";
 import { isTemplateVersioningSlug } from "../../../server/shared-layout-entry";
 import type { ContentFile } from "./types";
+
+type VersioningFile = Record<
+  string,
+  { variants?: Array<{ slug: string; allocation: number }> }
+>;
 
 function toContentFile(
   index: ContentIndex,
@@ -68,6 +71,26 @@ function toContentFile(
   };
 }
 
+/** Strip redirects from published-variant rows (redirects are live-only). */
+function withoutRedirects(data: Record<string, unknown>): Record<string, unknown> {
+  const meta = data.meta;
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return data;
+  const { redirects: _r, ...restMeta } = meta as Record<string, unknown>;
+  return { ...data, meta: restMeta };
+}
+
+function readVersioningFile(contentDir: string): VersioningFile | null {
+  const p = path.join(contentDir, "versioning.yml");
+  if (!fs.existsSync(p)) return null;
+  try {
+    const raw = fs.readFileSync(p, "utf-8");
+    const parsed = yaml.load(raw) as VersioningFile | null;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function loadLiveContent(index: ContentIndex): ContentFile[] {
   const entries = index.listAll();
   const files: ContentFile[] = [];
@@ -89,6 +112,48 @@ function loadLiveContent(index: ContentIndex): ContentFile[] {
           result.filePath,
         ),
       );
+    }
+  }
+
+  return files;
+}
+
+/** Published A/B variants (allocation > 0) as separate validation pages. */
+function loadPublishedVariants(index: ContentIndex): ContentFile[] {
+  const files: ContentFile[] = [];
+  const entries = index.listAll();
+
+  for (const entry of entries) {
+    const templateMode = isTemplateVersioningSlug(entry.slug);
+    const dir = getEntryContentDir(entry.contentType, entry.slug, index.contentRoot);
+    const versioning = readVersioningFile(dir);
+    if (!versioning) continue;
+
+    for (const [locale, localeData] of Object.entries(versioning)) {
+      if (!localeData?.variants?.length) continue;
+      for (const v of localeData.variants) {
+        if (!v.slug || !(v.allocation > 0)) continue;
+        const result = index.loadMergedContent(
+          entry.contentType,
+          entry.slug,
+          locale,
+          v.slug,
+        );
+        if (!result.data) continue;
+        const data = withoutRedirects(result.data as Record<string, unknown>);
+        files.push(
+          toContentFile(
+            index,
+            entry.contentType,
+            entry.slug,
+            locale,
+            data,
+            result.filePath,
+            { variant: v.slug },
+          ),
+        );
+        void templateMode;
+      }
     }
   }
 
@@ -137,5 +202,9 @@ function loadDraftOnlyContent(index: ContentIndex): ContentFile[] {
 
 export function loadAllContent(ci?: typeof defaultContentIndex): ContentFile[] {
   const index = ci ?? defaultContentIndex;
-  return [...loadLiveContent(index), ...loadDraftOnlyContent(index)];
+  return [
+    ...loadLiveContent(index),
+    ...loadPublishedVariants(index),
+    ...loadDraftOnlyContent(index),
+  ];
 }

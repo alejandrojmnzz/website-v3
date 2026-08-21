@@ -1,3 +1,17 @@
+/** Schema/DB field names that identify entry language — indexed automatically via `_locale`. */
+export const LOCALE_INDEX_FIELD_NAMES = ["lang", "locale", "language"] as const;
+
+export function isLocaleIndexField(field: string): boolean {
+  return (LOCALE_INDEX_FIELD_NAMES as readonly string[]).includes(field);
+}
+
+/** Remove locale identity fields from explicit indexes (locale KPI is always injected). */
+export function stripLocaleIndexFields(indexes: string[] | undefined): string[] | undefined {
+  if (!indexes?.length) return indexes;
+  const filtered = indexes.filter((f) => !isLocaleIndexField(f));
+  return filtered.length ? filtered : undefined;
+}
+
 const OG_LOCALE_DEFAULTS: Record<string, string> = {
   en: "en_US",
   es: "es_ES",

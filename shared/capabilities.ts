@@ -1,5 +1,12 @@
 const REGISTRY = [
   {
+    name: "content_view",
+    label: "View content",
+    scoped: true,
+    description:
+      "Read content entries, type contracts, component schemas, and architecture playbooks. Does not allow writes.",
+  },
+  {
     name: "content_create_entry",
     label: "Create entries",
     scoped: true,
@@ -156,3 +163,14 @@ export const GLOBAL_CAPABILITIES: GlobalCapability[] = (
 ).map((c) => c.name);
 
 export const ALL_CAPABILITIES: CapabilityName[] = REGISTRY.map((c) => c.name);
+
+/** Scoped content caps that mutate entries (everything scoped except content_view). */
+export const CONTENT_MUTATE_CAPABILITIES: ScopedCapability[] = SCOPED_CAPABILITIES.filter(
+  (name) => name !== "content_view",
+);
+
+/** Caps that never authorize metrics jobs or other mutating staff surfaces. */
+export const VIEW_ONLY_CAPABILITIES: ReadonlySet<CapabilityName> = new Set([
+  "metrics_view",
+  "content_view",
+]);

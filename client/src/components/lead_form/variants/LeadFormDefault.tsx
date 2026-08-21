@@ -186,6 +186,7 @@ export interface LeadFormData {
     region?: FieldConfig;
     location?: FieldConfig;
     coupon?: FieldConfig;
+    referral_key?: FieldConfig;
     client_comments?: FieldConfig;
     /** Sent on the lead webhook as current_download; usually hidden via visible: false. */
     current_download?: FieldConfig;
@@ -263,6 +264,7 @@ interface FormValues {
   region: string;
   location: string;
   coupon: string;
+  referral_key: string;
   client_comments: string;
   current_download: string;
   consent_email: boolean;
@@ -934,6 +936,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       region: { visible: false, required: false, default: "auto" },
       location: { visible: false, required: false, default: "auto" },
       coupon: { visible: false, required: false, default: "auto" },
+      referral_key: { visible: false, required: false },
       client_comments: { visible: false, required: false },
       current_download: { visible: false, required: false },
     };
@@ -1026,6 +1029,8 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         return sessionLocation?.region || "";
       case "coupon":
         return utm.coupon || "";
+      case "referral_key":
+        return utm.referral_key || utm.referral || utm.ref || "";
       default:
         return "";
     }
@@ -1081,6 +1086,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       region: resolveDefault("region", getFieldConfig("region").default),
       location: resolveDefault("location", getFieldConfig("location").default),
       coupon: resolveDefault("coupon", getFieldConfig("coupon").default),
+      referral_key: resolveDefault("referral_key", getFieldConfig("referral_key").default),
       client_comments: resolveDefault("client_comments", getFieldConfig("client_comments").default),
       current_download: resolveDefault("current_download", getFieldConfig("current_download").default),
       consent_email: false,
@@ -1191,6 +1197,10 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     if (utm.coupon && !form.getValues("coupon")) {
       form.setValue("coupon", utm.coupon);
     }
+    const urlReferral = utm.referral_key || utm.referral || utm.ref;
+    if (urlReferral && !form.getValues("referral_key")) {
+      form.setValue("referral_key", urlReferral);
+    }
     if (programContext && !form.getValues("program")) {
       form.setValue("program", programContext);
     }
@@ -1276,6 +1286,12 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         values.coupon ||
         utm.coupon ||
         resolveDefault("coupon", getFieldConfig("coupon").default),
+      referral_key:
+        values.referral_key ||
+        utm.referral_key ||
+        utm.referral ||
+        utm.ref ||
+        resolveDefault("referral_key", getFieldConfig("referral_key").default),
       current_download:
         values.current_download ||
         resolveDefault("current_download", getFieldConfig("current_download").default),
@@ -1306,6 +1322,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         location: fields.location,
         region: fields.region,
         coupon: fields.coupon,
+        referral_key: fields.referral_key,
         program: fields.program,
         current_download: fields.current_download,
         language: session.language,
@@ -1430,6 +1447,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             location: fields.location,
             region: fields.region,
             coupon: fields.coupon,
+            referral_key: fields.referral_key,
             client_comments: variables.client_comments,
             current_download: fields.current_download,
             consent_email: variables.consent_email,
@@ -1668,6 +1686,8 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       "plan",
       "region",
       "location",
+      "coupon",
+      "referral_key",
       "client_comments",
       "current_download",
     ];
@@ -1723,6 +1743,8 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     check("plan");
     check("region");
     check("location");
+    check("coupon");
+    check("referral_key");
     check("client_comments");
     check("current_download");
 
@@ -1868,6 +1890,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     showField("region") ||
     showField("location") ||
     showField("coupon") ||
+    showField("referral_key") ||
     showField("client_comments") ||
     showField("current_download");
 
@@ -2320,6 +2343,39 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                     </FormControl>
                     {getFieldConfig("coupon").helper_text && (
                       <p className="text-sm text-muted-foreground">{getFieldConfig("coupon").helper_text}</p>
+                    )}
+                    <FormMessage className="text-white bg-destructive/90 px-2 py-0.5 rounded text-xs inline-block" />
+                  </FormItem>
+                )}
+              />
+            )}
+
+            {showField("referral_key") && (
+              <FormField
+                control={form.control}
+                name="referral_key"
+                rules={{
+                  required: getFieldConfig("referral_key").required
+                    ? (locale === "es" ? "Referral requerido" : "Referral is required")
+                    : false,
+                }}
+                render={({ field }) => (
+                  <FormItem>
+                    {getFieldConfig("referral_key").show_label && (
+                      <FormLabel>{getFieldConfig("referral_key").label || (locale === "es" ? "Referral" : "Referral")}</FormLabel>
+                    )}
+                    <FormControl>
+                      <LeadFormFieldControl
+                        renderer={resolveFieldRenderer("referral_key")}
+                        field={field}
+                        options={mergeLeadFormOptions([], getFieldConfig("referral_key").options)}
+                        placeholder={getFieldConfig("referral_key").placeholder || (locale === "es" ? "Código de referral" : "Referral code")}
+                        testId="input-referral-key"
+                        dialogTitle={getFieldConfig("referral_key").label || "Referral"}
+                      />
+                    </FormControl>
+                    {getFieldConfig("referral_key").helper_text && (
+                      <p className="text-sm text-muted-foreground">{getFieldConfig("referral_key").helper_text}</p>
                     )}
                     <FormMessage className="text-white bg-destructive/90 px-2 py-0.5 rounded text-xs inline-block" />
                   </FormItem>

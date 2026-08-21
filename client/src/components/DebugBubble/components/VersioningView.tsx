@@ -222,6 +222,8 @@ export function VersioningView({
   const [repoUrl, setRepoUrl] = useState<string | null>(null);
   const [restoreTarget, setRestoreTarget] = useState<string | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [publishConfirmVariants, setPublishConfirmVariants] = useState<string[] | null>(null);
+  const [allocationSaveError, setAllocationSaveError] = useState<string | null>(null);
 
   const isPreview = pathname.startsWith("/private/preview/");
 
@@ -503,14 +505,17 @@ export function VersioningView({
   const cancelEdit = () => {
     setEditingLocale(null);
     setTempAllocations({});
+    setAllocationSaveError(null);
+    setPublishConfirmVariants(null);
   };
 
-  const handleSaveAllocations = async () => {
+  const handleSaveAllocations = async (opts?: { confirmPublish?: boolean }) => {
     if (!editingLocale || !contentInfo.type || !contentInfo.slug) return;
     const localeData = versioningData?.versioning?.[editingLocale];
     if (!localeData) return;
 
     setIsSaving(true);
+    setAllocationSaveError(null);
     try {
       const token = getDebugToken();
       const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -521,16 +526,62 @@ export function VersioningView({
         allocation: tempAllocations[v.slug] ?? v.allocation,
       })).filter((v) => v.slug !== "__default__");
 
+      const body: {
+        variants: typeof variants;
+        confirm_publish_variants?: boolean;
+      } = { variants };
+      if (opts?.confirmPublish) {
+        body.confirm_publish_variants = true;
+      }
+
       const res = await fetch(
         `/api/versioning/${contentInfo.type}/${versioningWriteSlug}/${editingLocale}`,
         {
           method: "PATCH",
           headers,
-          body: JSON.stringify({ variants }),
+          body: JSON.stringify(body),
         }
       );
 
-      if (!res.ok) throw new Error("Failed to save allocations");
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        if (
+          data?.code === "confirm_publish_variants" ||
+          data?.error === "action_required"
+        ) {
+          setPublishConfirmVariants(
+            Array.isArray(data.variants) ? data.variants : [],
+          );
+          return;
+        }
+        if (data?.code === "variant_validation_failed") {
+          const parts: string[] = [];
+          const byVar = data.issuesByVariant || {};
+          for (const [slug, issues] of Object.entries(byVar)) {
+            const msgs = (issues as Array<{ message?: string; code?: string }>)
+              .map((i) => i.message || i.code || "error")
+              .slice(0, 3);
+            parts.push(`${slug}: ${msgs.join("; ")}`);
+          }
+          const summary =
+            parts.join(" · ") ||
+            data.error ||
+            "Validation failed for newly published variants.";
+          setAllocationSaveError(summary);
+          setPublishConfirmVariants(null);
+          toast({
+            title: "Cannot publish variants",
+            description: summary,
+            variant: "destructive",
+            duration: 8000,
+          });
+          return;
+        }
+        throw new Error(data?.error || "Failed to save allocations");
+      }
+
+      setPublishConfirmVariants(null);
 
       const updated = await fetch(
         `/api/versioning/${contentInfo.type}/${contentInfo.slug}`
@@ -538,9 +589,16 @@ export function VersioningView({
 
       if (onVersioningDataUpdate) onVersioningDataUpdate(updated);
 
+      const warningNote =
+        data.warningsByVariant && Object.keys(data.warningsByVariant).length > 0
+          ? " Published with validation warnings — check Diagnostics."
+          : "";
+
       toast({
         title: "Traffic split saved",
-        description: "Allocation changes have been committed to version control and will go live on next deploy.",
+        description:
+          "Allocation changes have been committed to version control and will go live on next deploy." +
+          warningNote,
         duration: 5000,
       });
       setSavedLocale(editingLocale);
@@ -627,7 +685,22 @@ export function VersioningView({
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-sm">{showRestorePanel ? "Restore History" : versionsTitle}</h3>
             <p className="text-xs text-muted-foreground truncate">
-              {contentInfo.label}: {contentInfo.slug}
+              {contentInfo.type ? (
+                <a
+                  href={`/private/type/${contentInfo.type}`}
+                  className="underline underline-offset-2 hover:text-foreground"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    navigate(`/private/type/${contentInfo.type}`);
+                  }}
+                  data-testid="link-versioning-content-type"
+                >
+                  {contentInfo.label}
+                </a>
+              ) : (
+                contentInfo.label
+              )}
+              : {contentInfo.slug}
               {isDetached ? " · Detached" : isTemplateVersioning ? " · Shared template" : ""}
             </p>
           </div>
@@ -1013,7 +1086,7 @@ export function VersioningView({
                           {totalTemp}%
                         </Badge>
                         <button
-                          onClick={handleSaveAllocations}
+                          onClick={() => void handleSaveAllocations()}
                           disabled={isSaving || totalTemp !== 100}
                           className="p-1 rounded-md hover-elevate text-muted-foreground disabled:opacity-40 disabled:cursor-not-allowed"
                           title={totalTemp !== 100 ? `Total must equal 100% (currently ${totalTemp}%)` : "Save allocations"}
@@ -1036,6 +1109,15 @@ export function VersioningView({
                       </div>
                     ))}
                   </div>
+
+                  {isEditing && allocationSaveError && (
+                    <p
+                      className="text-xs text-destructive mb-2 px-0.5"
+                      data-testid={`text-allocation-save-error-${locale}`}
+                    >
+                      {allocationSaveError}
+                    </p>
+                  )}
 
                   <div className="space-y-2">
                     {/* Synthetic default row — only when published */}
@@ -1268,6 +1350,67 @@ export function VersioningView({
         </div>
       </div>
       )}
+
+      <Dialog
+        open={publishConfirmVariants !== null}
+        onOpenChange={(open) => {
+          if (!open && !isSaving) setPublishConfirmVariants(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Publish variants with traffic?</DialogTitle>
+            <DialogDescription className="space-y-2">
+              <span className="block">
+                Assigning traffic publishes these variants and runs validation. Redirects
+                cannot live on variants — only on the live locale file.
+              </span>
+              <ul className="list-disc pl-4 text-sm">
+                {(publishConfirmVariants ?? []).map((slug) => (
+                  <li key={slug}>
+                    <code className="text-xs bg-muted px-1 py-0.5 rounded">{slug}</code>
+                  </li>
+                ))}
+              </ul>
+              <details className="text-xs text-muted-foreground pt-1">
+                <summary className="cursor-pointer">Read more (advanced)</summary>
+                <p className="mt-1">
+                  Published variants use entry key{" "}
+                  <code className="bg-muted px-1 rounded">type/slug/locale@variant</code>.
+                  Files:{" "}
+                  <code className="bg-muted px-1 rounded">scripts/validation/shared/entryKey.ts</code>
+                  ,{" "}
+                  <code className="bg-muted px-1 rounded">server/routes/versioning.ts</code>.
+                </p>
+              </details>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={isSaving}
+              onClick={() => setPublishConfirmVariants(null)}
+              data-testid="button-cancel-publish-variants"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={isSaving}
+              onClick={() => void handleSaveAllocations({ confirmPublish: true })}
+              data-testid="button-confirm-publish-variants"
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Validating…
+                </>
+              ) : (
+                "Publish & save"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={createVersionOpen} onOpenChange={(open) => {
         setCreateVersionOpen(open);

@@ -19,6 +19,8 @@ import {
   SCOPED_CAPABILITIES,
   GLOBAL_CAPABILITIES,
   ALL_CAPABILITIES,
+  CONTENT_MUTATE_CAPABILITIES,
+  VIEW_ONLY_CAPABILITIES,
   type ScopedCapability,
   type GlobalCapability,
   type CapabilityName,
@@ -80,7 +82,7 @@ interface UsersState {
 
 // ─── Built-in roles ────────────────────────────────────────────────────────────
 
-export const BUILT_IN_ROLE_IDS = ["webmaster", "metrics_viewer"] as const;
+export const BUILT_IN_ROLE_IDS = ["webmaster", "metrics_viewer", "content_viewer"] as const;
 export type BuiltInRoleId = (typeof BUILT_IN_ROLE_IDS)[number];
 
 export function isBuiltInRole(roleId: string): boolean {
@@ -101,6 +103,7 @@ const BUILT_IN_WEBMASTER_ROLE: RoleDefinition = {
     { name: "components_manage" },
     { name: "migrations_run" },
     { name: "metrics_view" },
+    { name: "content_view", contentTypes: "*" },
     { name: "content_create_entry", contentTypes: "*" },
     { name: "content_delete_entry", contentTypes: "*" },
     { name: "content_edit_structure", contentTypes: "*" },
@@ -122,10 +125,18 @@ const BUILT_IN_METRICS_VIEWER_ROLE: RoleDefinition = {
   capabilities: [{ name: "metrics_view" }],
 };
 
+const BUILT_IN_CONTENT_VIEWER_ROLE: RoleDefinition = {
+  label: "Content Viewer",
+  description:
+    "Read-only MCP access to YAML entries, type contracts, component schemas, and architecture playbooks. Cannot write content, run diagnostics jobs, or manage FAQ databases.",
+  capabilities: [{ name: "content_view", contentTypes: "*" }],
+};
+
 const DEFAULT_STATE: UsersState = {
   roles: {
     webmaster: BUILT_IN_WEBMASTER_ROLE,
     metrics_viewer: BUILT_IN_METRICS_VIEWER_ROLE,
+    content_viewer: BUILT_IN_CONTENT_VIEWER_ROLE,
   },
   users: {},
 };
@@ -135,6 +146,63 @@ function syncBuiltInRoles(): void {
   if (!state.roles) state.roles = {};
   state.roles.webmaster = BUILT_IN_WEBMASTER_ROLE;
   state.roles.metrics_viewer = BUILT_IN_METRICS_VIEWER_ROLE;
+  state.roles.content_viewer = BUILT_IN_CONTENT_VIEWER_ROLE;
+}
+
+function unionContentTypeScopes(
+  grants: Array<{ contentTypes?: string[] | "*" }>,
+): string[] | "*" {
+  const types = new Set<string>();
+  for (const grant of grants) {
+    if (grant.contentTypes === "*" || grant.contentTypes === undefined) {
+      return "*";
+    }
+    if (Array.isArray(grant.contentTypes)) {
+      for (const t of grant.contentTypes) types.add(t);
+    }
+  }
+  return types.size > 0 ? Array.from(types) : "*";
+}
+
+/**
+ * Add content_view to custom editor roles that have mutate caps but no view grant.
+ * Built-in roles are skipped (synced from code). Returns true if any role changed.
+ */
+export function ensureContentViewOnEditorRoles(
+  roles: Record<string, RoleDefinition>,
+): boolean {
+  let changed = false;
+  for (const [roleId, role] of Object.entries(roles)) {
+    if (isBuiltInRole(roleId)) continue;
+    if (!role?.capabilities) continue;
+    if (role.capabilities.some((g) => g.name === "content_view")) continue;
+    const mutateGrants = role.capabilities.filter((g) =>
+      (CONTENT_MUTATE_CAPABILITIES as readonly string[]).includes(g.name),
+    );
+    if (mutateGrants.length === 0) continue;
+    role.capabilities = [
+      { name: "content_view", contentTypes: unionContentTypeScopes(mutateGrants) },
+      ...role.capabilities,
+    ];
+    changed = true;
+  }
+  return changed;
+}
+
+/** True when grants include a mutating cap (not only metrics_view / content_view). */
+export function grantsCanMutateMetrics(caps: CapabilityGrant[]): boolean {
+  return caps.some((g) => !VIEW_ONLY_CAPABILITIES.has(g.name));
+}
+
+function finishLoad(persist: "local" | "all"): void {
+  syncBuiltInRoles();
+  if (!state.users) state.users = {};
+  backfillMissingUserIds();
+  if (ensureContentViewOnEditorRoles(state.roles)) {
+    log.info("[UserStore] Migrated custom roles: added content_view from editor capabilities");
+  }
+  if (persist === "all") save();
+  else saveLocal();
 }
 
 // ─── In-memory state ───────────────────────────────────────────────────────────
@@ -193,10 +261,7 @@ export async function loadUsersStateFromBucket(): Promise<void> {
   if (!IS_PRODUCTION) {
     log.info("[UserStore] Development mode — using local file only");
     state = loadLocal();
-    syncBuiltInRoles();
-    if (!state.users) state.users = {};
-    backfillMissingUserIds();
-    saveLocal();
+    finishLoad("local");
     loaded = true;
     return;
   }
@@ -204,10 +269,7 @@ export async function loadUsersStateFromBucket(): Promise<void> {
   if (!gcs.available) {
     log.info("[UserStore] GCS unavailable — loading from local file");
     state = loadLocal();
-    syncBuiltInRoles();
-    if (!state.users) state.users = {};
-    backfillMissingUserIds();
-    saveLocal();
+    finishLoad("local");
     loaded = true;
     return;
   }
@@ -227,10 +289,7 @@ export async function loadUsersStateFromBucket(): Promise<void> {
     state = loadLocal();
   }
 
-  syncBuiltInRoles();
-  if (!state.users) state.users = {};
-  backfillMissingUserIds();
-  save();
+  finishLoad("all");
 
   loaded = true;
 }
@@ -718,13 +777,12 @@ export function assignPendingToUser(email: string, username: string): { ok: bool
 
 /**
  * True when the user can mutate metrics surfaces (run diagnostics, rebuild insights,
- * change tracking/conversions). Metrics-only viewers (solely metrics_view) cannot.
+ * change tracking/conversions). View-only roles (metrics_view and/or content_view only) cannot.
  */
 export function canMutateMetrics(username: string): boolean {
   ensureLoaded();
   if (hasWebmasterRole(username)) return true;
-  const caps = getEffectiveCapabilities(username);
-  return caps.some((g) => g.name !== "metrics_view");
+  return grantsCanMutateMetrics(getEffectiveCapabilities(username));
 }
 
 export function deleteRole(roleId: string): { ok: boolean; error?: string } {

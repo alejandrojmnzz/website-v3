@@ -56,8 +56,8 @@ export function RuntimeIssueIgnoreRulesDialog({
           </DialogHeader>
           {ignored.length === 0 ? (
             <p className="text-sm text-muted-foreground" data-testid="ignore-rules-empty">
-              No custom ignore rules yet. Use a path’s menu or select rows, then Ignore from 404 log.
-              Suggestions can cover both locales or the selected slugs under one folder.
+              No custom ignore rules yet. Use a path’s menu or select rows, then Ignore selected. Each
+              ignore is the exact path only.
             </p>
           ) : (
             <ul className="space-y-2">

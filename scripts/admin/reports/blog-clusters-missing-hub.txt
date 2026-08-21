@@ -1,0 +1,5 @@
+# Blog clusters missing a live hub (or skipped because seo.* already disagreed)
+# Remaining unclustered leftovers after attaching spokes to live hubs.
+# id	locale	cluster_keyword	cluster_url	reason	detail
+blog/global-innovators-at-the-america-business-forum-miami/en.yml	en	Trends and Tech		empty_url	
+blog/the-600000-job-crisis/en.yml	en	Trends and Tech		empty_url	

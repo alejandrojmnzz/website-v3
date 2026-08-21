@@ -22,6 +22,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
 import { Link, useSearch } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { AddRedirectDialog, getApiErrorMessage, hasRegexChars } from "@/components/editing/AddRedirectDialog";
@@ -33,6 +38,7 @@ import {
   useRedirectConflictResolver,
 } from "@/components/RedirectConflictResolver";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
+import { formatSitePathsInText } from "@shared/formatSitePath";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DndContext,
@@ -89,6 +95,29 @@ interface Redirect {
 function formatRedirectTo(to: string | Record<string, string>): string {
   if (typeof to === "string") return to;
   return Object.values(to).join(", ");
+}
+
+function FullUrlHoverCard({
+  url,
+  children,
+}: {
+  url: string;
+  children: ReactNode;
+}) {
+  return (
+    <HoverCard openDelay={200} closeDelay={80}>
+      <HoverCardTrigger asChild>{children}</HoverCardTrigger>
+      <HoverCardContent
+        align="start"
+        side="top"
+        className="w-auto max-w-md p-3"
+      >
+        <code className="text-xs font-mono break-all whitespace-pre-wrap leading-relaxed">
+          {url}
+        </code>
+      </HoverCardContent>
+    </HoverCard>
+  );
 }
 
 function isLocaleMap(
@@ -175,27 +204,6 @@ interface ValidationResult {
   duration: number;
 }
 
-function isContentFilePath(p: string): boolean {
-  return (
-    /\.ya?ml$/i.test(p) ||
-    /(?:^|\/)(?:site_[^/]+|4geeks-com|content)\//.test(p)
-  );
-}
-
-/** Format a path or a message that embeds content file paths (site-relative). */
-function formatValidationText(
-  text: string,
-  formatPath: (filePath: string) => string,
-): string {
-  if (!text) return text;
-  if (!text.includes('"') && isContentFilePath(text)) {
-    return formatPath(text);
-  }
-  return text.replace(/"([^"]+)"/g, (full, inner: string) =>
-    isContentFilePath(inner) ? `"${formatPath(inner)}"` : full,
-  );
-}
-
 const FILE_ORDINALS = ["first", "second", "third", "fourth", "fifth"];
 
 /** Button label for remove-from-file; disambiguates when basenames collide. */
@@ -242,8 +250,12 @@ export default function PrivateRedirects() {
     captureGroups?: string[];
     pageExists?: boolean;
     destinationExists?: boolean;
+    live_content?: boolean;
+    conflicts?: Array<{ kind: string; from: string; source?: string; message: string }>;
+    fixes?: Array<{ id: string; kind: string; effect: string }>;
   } | null>(null);
   const [isTestingRedirect, setIsTestingRedirect] = useState(false);
+  const [showRedirectsTestAdvanced, setShowRedirectsTestAdvanced] = useState(false);
   const testRedirectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -708,6 +720,17 @@ export default function PrivateRedirects() {
                 View YAML
               </Button>
               <Button
+                variant="outline"
+                size="sm"
+                asChild
+                data-testid="button-view-runtime-404s"
+              >
+                <Link href="/private/diagnostics/runtime-issues">
+                  <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+                  404's
+                </Link>
+              </Button>
+              <Button
                 variant="default"
                 size="sm"
                 onClick={() => setShowAddDialog(true)}
@@ -750,6 +773,46 @@ export default function PrivateRedirects() {
                 Browsers cache 301 redirects aggressively, so test changes in an incognito window if a redirect seems stuck.
               </span>
             </div>
+            <div className="space-y-1.5 text-xs text-muted-foreground" data-testid="redirects-test-how-it-works">
+              <p className="text-foreground font-medium">How redirects work</p>
+              <p>
+                Rules live in <strong className="text-foreground font-medium">two stores</strong>: page{" "}
+                <code className="text-[11px]">meta.redirects</code> (destination locale file) and{" "}
+                <code className="text-[11px]">custom-redirects.yml</code>. Runtime has one{" "}
+                <strong className="text-foreground font-medium">first-match winner</strong>; other matching rules show as conflicts below.
+                Each locale has <strong className="text-foreground font-medium">one canonical homepage</strong>{" "}
+                (e.g. <code className="text-[11px]">/en/home</code>, <code className="text-[11px]">/es/inicio</code>);
+                bare <code className="text-[11px]">/</code>, <code className="text-[11px]">/en</code>,{" "}
+                <code className="text-[11px]">/es</code>, and <code className="text-[11px]">/us</code> are aliases that may 301 there without an overwrite warning.
+              </p>
+              <button
+                type="button"
+                className="text-xs text-primary underline-offset-2 hover:underline"
+                onClick={() => setShowRedirectsTestAdvanced((v) => !v)}
+                data-testid="button-redirects-test-read-more"
+              >
+                {showRedirectsTestAdvanced ? "Hide advanced" : "Read more (advanced)"}
+              </button>
+              {showRedirectsTestAdvanced && (
+                <ul className="list-disc pl-5 space-y-1 text-[11px]">
+                  <li>
+                    Page aliases: <code>{"{directory}/{slug}/{locale}.yml"}</code>{" "}
+                    <code>meta.redirects</code> (dest locale only, not <code>_common.yml</code>)
+                  </li>
+                  <li>
+                    Catch-alls / external dests: <code>site_&lt;name&gt;/custom-redirects.yml</code>
+                  </li>
+                  <li>
+                    Overwrite warnings use <code>contentIndex.isKnownUrl</code> only (not the SEO sitemap).
+                    Locale-home aliases are listed in <code>shared/public-app-routes.ts</code> (
+                    <code>LOCALE_HOME_ALIASES</code>) and never count as live content.
+                  </li>
+                  <li>
+                    After shipping routing changes, re-run site validation / clear diagnostics cache if old overwrite errors linger.
+                  </li>
+                </ul>
+              )}
+            </div>
             <div className="space-y-2">
               <div className="relative">
                 <TestTube className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -770,6 +833,11 @@ export default function PrivateRedirects() {
                   </button>
                 )}
               </div>
+              {!testRedirectUrl.trim() && !isTestingRedirect && (
+                <p className="text-xs text-muted-foreground" data-testid="text-test-redirect-empty">
+                  Paste a path — winner is first-match; other rules appear as conflicts.
+                </p>
+              )}
               {isTestingRedirect && (
                 <p className="text-xs text-muted-foreground" data-testid="status-testing-redirect">Checking...</p>
               )}
@@ -797,7 +865,34 @@ export default function PrivateRedirects() {
                       {testRedirectResult.matchType === "regex" && (
                         <Badge variant="outline" className="text-xs font-mono">regex</Badge>
                       )}
+                      {(testRedirectResult.conflicts ?? []).map((conflict, i) => (
+                        <Badge
+                          key={`${conflict.kind}-${i}`}
+                          variant={conflict.kind === "overwrites_content" ? "destructive" : "secondary"}
+                          className="text-xs"
+                          data-testid={`chip-redirect-conflict-${conflict.kind}`}
+                        >
+                          {conflict.kind === "overwrites_content"
+                            ? "Overwrites live URL"
+                            : conflict.kind === "duplicate_from"
+                              ? "Duplicate from"
+                              : conflict.kind === "regex_shadowed"
+                                ? "Shadowed regex"
+                                : conflict.kind}
+                        </Badge>
+                      ))}
                     </div>
+                    {(testRedirectResult.conflicts ?? []).some((c) => c.kind === "overwrites_content") && (
+                      <div
+                        className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive dark:text-red-300"
+                        data-testid="banner-redirect-overwrites-content"
+                      >
+                        This path is both a redirect and a live content URL (
+                        <code>contentIndex.isKnownUrl</code>). Locale-home aliases (
+                        <code>/</code>, <code>/en</code>, <code>/es</code>, <code>/us</code>) do not trigger this —
+                        they should 301 to the canonical homepage. First-match still 301s visitors away from the live page.
+                      </div>
+                    )}
                     <div className="space-y-1.5">
                       <div className="flex items-center gap-2 text-xs">
                         <span className="text-muted-foreground flex-shrink-0">Rule:</span>
@@ -949,11 +1044,11 @@ export default function PrivateRedirects() {
                               )}
                             </div>
                             <p className="text-sm mt-1">
-                              {formatValidationText(issue.message, formatPath)}
+                              {formatSitePathsInText(issue.message, formatPath)}
                             </p>
                             {issue.suggestion && (
                               <p className="text-xs text-muted-foreground mt-1">
-                                {formatValidationText(issue.suggestion || "", formatPath)}
+                                {formatSitePathsInText(issue.suggestion || "", formatPath)}
                               </p>
                             )}
                             {conflict && conflict.files.length >= 2 && (
@@ -1032,11 +1127,11 @@ export default function PrivateRedirects() {
                               )}
                             </div>
                             <p className="text-sm mt-1">
-                              {formatValidationText(issue.message, formatPath)}
+                              {formatSitePathsInText(issue.message, formatPath)}
                             </p>
                             {issue.suggestion && (
                               <p className="text-xs text-muted-foreground mt-1">
-                                {formatValidationText(issue.suggestion || "", formatPath)}
+                                {formatSitePathsInText(issue.suggestion || "", formatPath)}
                               </p>
                             )}
                             {conflict && conflict.files.length >= 2 && (
@@ -1195,20 +1290,23 @@ export default function PrivateRedirects() {
                                   </Button>
                                 </div>
                               ) : isEditableRegex ? (
-                                <button
-                                  type="button"
-                                  className="text-xs bg-muted px-2 py-1 rounded truncate text-left min-w-0 max-w-full cursor-pointer hover:ring-1 hover:ring-ring inline-flex items-center gap-1.5"
-                                  onClick={() => startInlineEdit(redirect, "from")}
-                                  title="Click to edit regex"
-                                  data-testid={`code-from-${type}-${index}`}
-                                >
-                                  <code className="font-mono truncate">{redirect.from}</code>
-                                  <Pencil className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                                </button>
+                                <FullUrlHoverCard url={redirect.from}>
+                                  <button
+                                    type="button"
+                                    className="text-xs bg-muted px-2 py-1 rounded truncate text-left min-w-0 max-w-full cursor-pointer hover:ring-1 hover:ring-ring inline-flex items-center gap-1.5"
+                                    onClick={() => startInlineEdit(redirect, "from")}
+                                    data-testid={`code-from-${type}-${index}`}
+                                  >
+                                    <code className="font-mono truncate">{redirect.from}</code>
+                                    <Pencil className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                                  </button>
+                                </FullUrlHoverCard>
                               ) : (
-                                <code className="text-xs bg-muted px-2 py-1 rounded block truncate">
-                                  {redirect.from}
-                                </code>
+                                <FullUrlHoverCard url={redirect.from}>
+                                  <code className="text-xs bg-muted px-2 py-1 rounded block truncate cursor-default">
+                                    {redirect.from}
+                                  </code>
+                                </FullUrlHoverCard>
                               )}
                               {hasRegexChars(redirect.from) && (
                                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex-shrink-0 font-mono">
@@ -1304,9 +1402,11 @@ export default function PrivateRedirects() {
                                         className="flex items-center gap-1.5"
                                       >
                                         <LocaleFlag locale={locale} />
-                                        <code className="text-xs bg-muted px-2 py-0.5 rounded truncate flex-1">
-                                          {url}
-                                        </code>
+                                        <FullUrlHoverCard url={url}>
+                                          <code className="text-xs bg-muted px-2 py-0.5 rounded truncate flex-1 cursor-default">
+                                            {url}
+                                          </code>
+                                        </FullUrlHoverCard>
                                         <a
                                           href={url}
                                           target="_blank"
@@ -1371,20 +1471,23 @@ export default function PrivateRedirects() {
                               ) : (
                                 <>
                                   {isEditableRegex ? (
-                                    <button
-                                      type="button"
-                                      className="text-xs bg-muted px-2 py-1 rounded truncate text-left flex-1 min-w-0 cursor-pointer hover:ring-1 hover:ring-ring inline-flex items-center gap-1.5"
-                                      onClick={() => startInlineEdit(redirect, "to")}
-                                      title="Click to edit destination"
-                                      data-testid={`code-to-${type}-${index}`}
-                                    >
-                                      <code className="font-mono truncate">{redirect.to as string}</code>
-                                      <Pencil className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                                    </button>
+                                    <FullUrlHoverCard url={redirect.to as string}>
+                                      <button
+                                        type="button"
+                                        className="text-xs bg-muted px-2 py-1 rounded truncate text-left flex-1 min-w-0 cursor-pointer hover:ring-1 hover:ring-ring inline-flex items-center gap-1.5"
+                                        onClick={() => startInlineEdit(redirect, "to")}
+                                        data-testid={`code-to-${type}-${index}`}
+                                      >
+                                        <code className="font-mono truncate">{redirect.to as string}</code>
+                                        <Pencil className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                                      </button>
+                                    </FullUrlHoverCard>
                                   ) : (
-                                    <code className="text-xs bg-muted px-2 py-1 rounded block truncate flex-1">
-                                      {redirect.to}
-                                    </code>
+                                    <FullUrlHoverCard url={String(redirect.to)}>
+                                      <code className="text-xs bg-muted px-2 py-1 rounded block truncate flex-1 cursor-default">
+                                        {redirect.to}
+                                      </code>
+                                    </FullUrlHoverCard>
                                   )}
                                   {!/\$\d/.test(redirect.to as string) && !hasRegexChars(redirect.to as string) && (
                                     <a

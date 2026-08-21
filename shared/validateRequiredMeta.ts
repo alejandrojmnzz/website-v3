@@ -25,32 +25,44 @@ function isUsableMetaString(value: unknown): boolean {
  * Validate resolved meta for a live page/entry.
  * Pass meta *after* {{ single.* }} (and similar) resolution.
  */
-export function validateRequiredMeta(
+const META_KEY_MESSAGES: Record<"page_title" | "description", MetaFieldError> = {
+  page_title: {
+    field: "meta.page_title",
+    message:
+      "meta.page_title is required before saving a live page (must be non-empty and fully resolved — no {{ }} templates).",
+  },
+  description: {
+    field: "meta.description",
+    message:
+      "meta.description is required before saving a live page (must be non-empty and fully resolved — no {{ }} templates).",
+  },
+};
+
+/** Validate only selected meta snippet keys (micro-save). */
+export function validateRequiredMetaKeys(
   meta: unknown,
+  keys: readonly ("page_title" | "description")[],
 ): ValidateRequiredMetaResult {
-  const errors: MetaFieldError[] = [];
+  if (keys.length === 0) return { ok: true };
   const m =
     meta && typeof meta === "object" && !Array.isArray(meta)
       ? (meta as Record<string, unknown>)
       : {};
-
-  if (!isUsableMetaString(m.page_title)) {
-    errors.push({
-      field: "meta.page_title",
-      message:
-        "meta.page_title is required before saving a live page (must be non-empty and fully resolved — no {{ }} templates).",
-    });
+  const errors: MetaFieldError[] = [];
+  for (const key of keys) {
+    const fieldKey = key === "page_title" ? "page_title" : "description";
+    if (!isUsableMetaString(m[fieldKey])) {
+      errors.push(META_KEY_MESSAGES[key]);
+    }
   }
-  if (!isUsableMetaString(m.description)) {
-    errors.push({
-      field: "meta.description",
-      message:
-        "meta.description is required before saving a live page (must be non-empty and fully resolved — no {{ }} templates).",
-    });
-  }
-
   if (errors.length > 0) return { ok: false, errors };
   return { ok: true };
+}
+
+export function validateRequiredMeta(
+  meta: unknown,
+): ValidateRequiredMetaResult {
+  return validateRequiredMetaKeys(meta, ["page_title", "description"]);
 }
 
 export function formatMetaValidationErrors(

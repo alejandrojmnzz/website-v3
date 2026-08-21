@@ -65,6 +65,7 @@ export async function resolveUrlTargets(
   ci: ContentIndex,
   slugs?: string[],
   urls?: string[],
+  files?: string[],
 ): Promise<DiagnosticsUrlTarget[]> {
   const service = new ValidationService();
   const context = await service.buildContext({ contentRoot, ci });
@@ -73,11 +74,13 @@ export async function resolveUrlTargets(
     urls && urls.length > 0
       ? new Set(urls.map((u) => u.toLowerCase().replace(/\/$/, "") || "/"))
       : null;
+  const fileSet = files && files.length > 0 ? new Set(files) : null;
 
   const targets: DiagnosticsUrlTarget[] = [];
   const seen = new Set<string>();
 
   for (const file of context.contentFiles) {
+    if (fileSet && !fileSet.has(file.filePath)) continue;
     if (slugSet && !slugSet.has(file.slug)) continue;
     const url = getCanonicalUrl(file);
     const norm = url.toLowerCase().replace(/\/$/, "") || "/";
@@ -158,6 +161,9 @@ export function issuesBySlugFromTargets(
   return { issuesBySlug, lastFullRunAtBySlug, cacheMisses };
 }
 
+/** Sentinel entry key — partial apply clears file-only issues without touching real entries. */
+export const VALIDATOR_ONLY_ENTRY_KEY = "__validator_only__";
+
 export type RunDiagnosticsJobInput = {
   contentRoot: string;
   ci: ContentIndex;
@@ -169,6 +175,8 @@ export type RunDiagnosticsJobInput = {
   validators?: string[];
   include_artifacts: boolean;
   categories?: string[];
+  /** Shared-template file re-check: one validator pass, no per-URL loop. */
+  validator_only?: boolean;
   onProgress: (p: {
     processed: number;
     total: number;
@@ -199,17 +207,20 @@ export async function runDiagnosticsJob(
     validators,
     include_artifacts: includeArtifacts,
     categories,
+    validator_only: validatorOnly,
     onProgress,
   } = input;
 
   const service = new ValidationService();
   const context = await service.buildContext({ contentRoot, ci });
-  const slugFiltered = !!(slugs?.length || urls?.length);
+  const slugFiltered = !!(slugs?.length || urls?.length || validatorOnly);
   const { pageValidators, siteWideValidators, partial } = effectiveValidatorNames(validators, {
     slugFiltered,
   });
 
-  const allTargets = await resolveUrlTargets(contentRoot, ci, slugs, urls);
+  const allTargets = validatorOnly
+    ? []
+    : await resolveUrlTargets(contentRoot, ci, slugs, urls);
 
   let staleTargets = allTargets;
   if (!partial && freshness === "max_age") {
@@ -219,7 +230,8 @@ export async function runDiagnosticsJob(
   }
 
   const workUnits =
-    (pageValidators.length > 0 ? staleTargets.length : 0) +
+    (validatorOnly && pageValidators.length > 0 ? 1 : 0) +
+    (!validatorOnly && pageValidators.length > 0 ? staleTargets.length : 0) +
     (siteWideValidators.length > 0 ? 1 : 0);
   const total = Math.max(workUnits, 1);
   let processed = 0;
@@ -227,8 +239,8 @@ export async function runDiagnosticsJob(
   onProgress({
     processed,
     total,
-    staleUrlCount: staleTargets.length,
-    urlCount: allTargets.length,
+    staleUrlCount: validatorOnly ? 0 : staleTargets.length,
+    urlCount: validatorOnly ? 0 : allTargets.length,
     message: "Starting validators",
   });
 
@@ -236,7 +248,34 @@ export async function runDiagnosticsJob(
   const allContentFiles = context.contentFiles;
   const nowIso = () => new Date().toISOString();
 
-  for (const target of pageValidators.length > 0 ? staleTargets : []) {
+  if (validatorOnly && pageValidators.length > 0) {
+    context.contentFiles = [];
+    try {
+      const result = await service.runValidators({
+        validators: pageValidators,
+        includeArtifacts,
+      });
+      allValidatorResults.push(...result.validators);
+      cache.applyValidatorResults(result.validators, {
+        contentFiles: allContentFiles,
+        entryKeys: [VALIDATOR_ONLY_ENTRY_KEY],
+        markSiteWide: false,
+      });
+    } finally {
+      context.contentFiles = allContentFiles;
+    }
+    processed = 1;
+    await cache.flush();
+    onProgress({
+      processed,
+      total,
+      staleUrlCount: 0,
+      urlCount: 0,
+      message: "Shared-template validator pass done",
+    });
+  }
+
+  for (const target of !validatorOnly && pageValidators.length > 0 ? staleTargets : []) {
     const normalizedTarget = target.url.toLowerCase().replace(/\/$/, "") || "/";
     const filteredFiles = allContentFiles.filter((file) => {
       const fileUrl = getCanonicalUrl(file).toLowerCase().replace(/\/$/, "") || "/";

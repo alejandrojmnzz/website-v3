@@ -15,6 +15,7 @@ import {
   getContentTypeConfig,
   getFieldMapping,
   getFullFieldMapping,
+  getLocaleKey,
   getLookupKey,
   RESERVED_IMAGE_FIELD,
   IMAGE_ALIAS_FIELD,
@@ -24,6 +25,7 @@ import {
   RESERVED_PUBLISHED_AT_FIELD,
   KNOWN_SEO_FIELDS,
   isKnownSeoFieldPath,
+  isSeoDbMappingKey,
   seoFieldFromPath,
 } from "./content-types";
 import { getDefaultContentRoot } from "./site-config";
@@ -33,9 +35,11 @@ import { resolveFieldValue } from "./transform";
 import type { DatabaseManager } from "./database";
 import { ecommerceManager, PURCHASABLE_FIELD } from "./ecommerce/ecommerce-manager";
 import { isPublishedAtEmpty, setPublishedAt } from "./published-at";
+import { applyEditorialStampToPendingUpdates } from "./editorial-updated-at";
 import { assertLiveEntrySeoAndRequiredFields } from "./live-entry-seo-gate";
 import { writeSeoFields } from "./seo-index";
 import { readSeoBlockFromYamlText } from "./seo-fields";
+import { resolveEffectiveSeo, seoBaselineFromDbItem } from "./seo-effective-seo";
 import {
   DEFAULT_DRAFT_VARIANT,
   getEntryContentDir,
@@ -563,6 +567,10 @@ export function writeMappedFields(
       ? { ...commonForGate, ...foForGate }
       : foForGate;
 
+    const touchedPaths = [
+      ...Object.keys(pendingUpdates),
+      ...Object.keys(commonOnlyUpdates),
+    ];
     const seoGateErr = assertLiveEntrySeoAndRequiredFields({
       contentType,
       slug,
@@ -570,6 +578,8 @@ export function writeMappedFields(
       pageData: pageForGate,
       contentRoot,
       mode: "live_update",
+      intent: "micro",
+      touchedPaths,
       isDraftWrite: layer.isVariantLayer,
     });
     if (seoGateErr) {
@@ -603,6 +613,14 @@ export function writeMappedFields(
         };
       }
     }
+
+    applyEditorialStampToPendingUpdates({
+      pendingUpdates,
+      entryData,
+      contentType,
+      slug,
+      contentRoot,
+    });
 
     const written = isStatic
       ? writeStaticRootKeysBag(filePath, entryData, pendingUpdates, author, contentRoot)
@@ -811,7 +829,11 @@ export async function buildFieldProvenance(opts: {
     (k) => k !== IMAGE_ALIAS_FIELD && k !== SLUG_ALIAS_FIELD && !k.startsWith("_"),
   );
   const mappingKeys = Object.keys(fmRegular).filter(
-    (k) => !k.startsWith("_") && k !== IMAGE_ALIAS_FIELD && k !== SLUG_ALIAS_FIELD,
+    (k) =>
+      !k.startsWith("_") &&
+      k !== IMAGE_ALIAS_FIELD &&
+      k !== SLUG_ALIAS_FIELD &&
+      !isSeoDbMappingKey(k),
   );
   const specialKeys = KNOWN_SPECIAL_FIELDS.filter((k) => k in fmFull || true);
   const fieldKeys = Array.from(new Set([...specialKeys, ...mappingKeys, ...editorKeys]));
@@ -955,18 +977,70 @@ export async function buildFieldProvenance(opts: {
     contentIndex.getAlternateUrls(slug, contentType).en ||
     null;
 
+  let seoDbItem: Record<string, unknown> | null = null;
+  if (hasDatabase && dbName && db.exists(dbName)) {
+    const localeKey = getLocaleKey(contentType, contentRoot) || "locale";
+    const loc = locale.toLowerCase();
+    const matchLocale = (item: Record<string, unknown>) => {
+      const fromItem = item[localeKey] ?? item.locale ?? item.lang;
+      return typeof fromItem === "string" && fromItem.trim().toLowerCase() === loc;
+    };
+    if (mappedItem && matchLocale(mappedItem)) {
+      seoDbItem = mappedItem;
+    } else if (originalItem && matchLocale(originalItem)) {
+      seoDbItem = originalItem;
+    } else {
+      seoDbItem = mappedItem ?? originalItem;
+    }
+  }
+
+  const effectiveSeo = resolveEffectiveSeo({
+    contentType,
+    slug,
+    locale,
+    contentRoot: contentRoot ?? getDefaultContentRoot(),
+    dbItem: seoDbItem,
+  });
+  const seoBaseline =
+    seoDbItem && hasDatabase
+      ? seoBaselineFromDbItem(seoDbItem, contentType, contentRoot ?? getDefaultContentRoot())
+      : {};
+
   for (const key of KNOWN_SEO_FIELDS) {
     const fieldPath = `seo.${key}`;
-    const raw = seoBlock[key];
-    fields.push({
+    const hasOverlayKey =
+      !seoFileMissing && Object.prototype.hasOwnProperty.call(seoBlock, key);
+    const effectiveVal =
+      key === "is_pillar"
+        ? effectiveSeo.is_pillar === true
+        : effectiveSeo[key] === undefined
+          ? null
+          : effectiveSeo[key];
+    const baselineVal =
+      key === "is_pillar"
+        ? seoBaseline.is_pillar === true
+          ? true
+          : seoBaseline.is_pillar === false
+            ? false
+            : undefined
+        : seoBaseline[key];
+    const source: FieldOverrideSource = hasOverlayKey
+      ? "ct_override"
+      : hasDatabase
+        ? "original"
+        : "entry_default";
+    const row: FieldProvenance = {
       field: fieldPath,
-      effective: raw === undefined ? (key === "is_pillar" ? false : null) : raw,
-      source: "entry_default",
+      effective: effectiveVal,
+      source,
       group: "seo",
       writable: !seoFileMissing,
-      layer_has_key:
-        !seoFileMissing && Object.prototype.hasOwnProperty.call(seoBlock, key) ? true : undefined,
-    });
+      layer_has_key: hasOverlayKey || undefined,
+    };
+    if (hasDatabase && baselineVal !== undefined) {
+      row.baseline = baselineVal;
+    }
+    fields.push(row);
   }
 
   let indexRebuilt = false;

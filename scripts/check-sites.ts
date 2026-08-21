@@ -100,6 +100,7 @@ async function bootstrapWithProgress(
 ): Promise<{
   success: boolean;
   pulled: number;
+  skipped: number;
   errors: string[];
 }> {
   const bootstrapPromise = bootstrapContentFromRemote({
@@ -212,11 +213,16 @@ async function ensureSite(
     console.log(`        bootstrapping from ${shortRepo} ...`);
 
     const result = await bootstrapWithProgress(site.contentFolder, site.githubRepoUrl);
+    const remoteEmpty = result.success && result.pulled === 0 && result.skipped === 0;
 
     if (result.pulled > 0) {
-      bootstrapNote = `downloaded ${result.pulled} file(s)`;
+      const skipPart = result.skipped > 0 ? `, ${result.skipped} already up to date` : "";
+      bootstrapNote = `downloaded ${result.pulled} file(s)${skipPart}`;
       console.log(`        ✓ ${bootstrapNote}`);
-    } else if (result.success) {
+    } else if (result.skipped > 0) {
+      bootstrapNote = `remote already synced (${result.skipped} file(s) unchanged)`;
+      console.log(`        ✓ ${bootstrapNote}`);
+    } else if (remoteEmpty) {
       remoteNote = `no files found under ${site.contentFolder}/ in ${site.githubRepoUrl}`;
       console.log(`        ✗ ${remoteNote}`);
     }
@@ -239,7 +245,7 @@ async function ensureSite(
       };
     }
 
-    if (remoteNote?.startsWith("no files found")) {
+    if (remoteEmpty) {
       const created = await tryCreateLocalScaffold(site);
       if (created) {
         validation = validateSiteStructure(folderPath);
@@ -255,6 +261,10 @@ async function ensureSite(
           };
         }
       }
+    } else if (result.success && validation.issues.length > 0) {
+      console.log(
+        `        ✗ still incomplete after bootstrap — missing: ${formatMissingList(validation.issues)}`,
+      );
     }
   }
 

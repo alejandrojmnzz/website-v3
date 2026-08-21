@@ -10,6 +10,10 @@ describe("relation-field", () => {
     expect(deslugifyLabel("ada-lovelace")).toBe("Ada Lovelace");
   });
 
+  it("deslugifyLabel title-cases space-separated keywords", () => {
+    expect(deslugifyLabel("cuanto gana un programador")).toBe("Cuanto Gana Un Programador");
+  });
+
   it("rejects Person objects", () => {
     const r = normalizeRelationPointers({ name: "Ada", "@type": "Person" });
     expect(r.ok).toBe(false);

@@ -1,5 +1,6 @@
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { resolveContentTypeUrl } from "../../../server/content-types";
+import { liveFilesForSeo } from "../shared/seoValidationScope";
 
 export const seoDepthValidator: Validator = {
   name: "seo-depth",
@@ -18,7 +19,7 @@ export const seoDepthValidator: Validator = {
     let pagesWithOptimalTitles = 0;
     let pagesWithOptimalDescriptions = 0;
 
-    for (const file of context.contentFiles) {
+    for (const file of liveFilesForSeo(context)) {
       const pageTitle = file.meta?.page_title;
       const description = file.meta?.description;
       if (pageTitle) {

@@ -3,6 +3,7 @@ import {
   wipeSectionOnDuplicate,
   wipeDocumentSectionsOnDuplicate,
   resolveBoundFormSettingsPath,
+  showEcommerceEditorTab,
 } from "../shared/wipeOnDuplicate";
 import {
   validateRequiredConversionName,
@@ -189,5 +190,39 @@ describe("validateRequiredConversionName", () => {
         "signup_card.form",
       ),
     ).toMatch(/required/);
+  });
+});
+
+describe("showEcommerceEditorTab", () => {
+  const heroEditors = {
+    "course:signup_card.cta_button": "cta-tracking",
+    "course:signup_card.form": "form-settings",
+    "productShowcase:form": "form-settings",
+  };
+
+  it("is true for hero course (variant-prefixed cta-tracking)", () => {
+    expect(showEcommerceEditorTab(heroEditors, "course")).toBe(true);
+  });
+
+  it("is false for hero orbit (no matching ecommerce editors)", () => {
+    expect(showEcommerceEditorTab(heroEditors, "orbit")).toBe(false);
+  });
+
+  it("is true for enrollment unprefixed cta-tracking", () => {
+    expect(
+      showEcommerceEditorTab(
+        {
+          "programs[].summary.cta": "cta-tracking",
+          "programs[].plans[].summary.cta": "cta-tracking",
+        },
+        "default",
+      ),
+    ).toBe(true);
+  });
+
+  it("is true for pricing_plans ecommerce-products only", () => {
+    expect(
+      showEcommerceEditorTab({ ecommerce_products: "ecommerce-products" }, "default"),
+    ).toBe(true);
   });
 });

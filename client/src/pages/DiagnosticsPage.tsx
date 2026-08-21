@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {AlertTriangle, ArrowLeft, Brain, Check, ChevronDown, Crosshair, Globe, Info, Loader2, Play, RefreshCw, Save, Search, Stethoscope, Trash2, Users, Wrench, X} from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import {AlertTriangle, ArrowLeft, Brain, Check, CircleCheck, ChevronDown, Crosshair, Globe, Info, Loader2, Play, RefreshCw, Save, Search, Stethoscope, Trash2, Users, Wrench, X} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { Link, useLocation } from "wouter";
@@ -31,9 +32,38 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
+import { formatSitePathsInText } from "@shared/formatSitePath";
+
+function issueLayerLabel(entryKey?: string, file?: string): string | null {
+  if (entryKey?.includes("@")) {
+    const variant = entryKey.slice(entryKey.lastIndexOf("@") + 1);
+    return variant ? `variant: ${variant}` : null;
+  }
+  const base = (file || "").split(/[/\\]/).pop() || "";
+  const isVariantPath =
+    /^[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base) ||
+    /^single\.[a-z0-9-]+\.[a-z]{2}(-[a-z]{2})?\.ya?ml$/i.test(base);
+  if (!isVariantPath) return null;
+  const parts = base.replace(/\.ya?ml$/i, "").split(".");
+  const variantSlug =
+    parts[0] === "single" && parts.length >= 3
+      ? parts[1]
+      : parts.length >= 2
+        ? parts.slice(0, -1).join(".")
+        : null;
+  if (!variantSlug || variantSlug === "single") return null;
+  return `variant: ${variantSlug}`;
+}
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MetricsAccessGate } from "@/components/MetricsAccessGate";
@@ -135,8 +165,6 @@ interface PageDiagnostics {
   education?: { summary: string };
 }
 
-type SeverityFilter = "error" | "warning";
-
 function normalizeIssuePath(urlOrPath: string): string {
   let raw = (urlOrPath || "").split("#")[0].split("?")[0].trim();
   if (!raw) return "";
@@ -194,6 +222,7 @@ type CachedIssueRow = {
   lastFullRunAt?: string;
   suggestion?: string;
   file?: string;
+  entryKey?: string;
 };
 
 type JobStartResponse = {
@@ -205,7 +234,55 @@ type JobStartResponse = {
   validators?: ValidatorResult[];
   issuesBySlug?: Record<string, unknown>;
   scope?: { processed?: number; total?: number; staleUrlCount?: number; urlCount?: number };
+  scoped?: boolean;
+  last_site_wide_run_at?: string | null;
+  last_site_wide_run_ago?: string;
+  last_site_wide_duration_ms?: number | null;
+  last_site_wide_duration_human?: string | null;
+  last_site_wide_url_count?: number | null;
 };
+
+type DiagnosticsConfirmInfo = {
+  message: string;
+  scoped: boolean;
+  last_site_wide_run_ago: string;
+  last_site_wide_duration_human: string | null;
+  last_site_wide_url_count: number | null;
+};
+
+async function postDiagnosticsJobs(
+  body: Record<string, unknown>,
+): Promise<JobStartResponse & { httpStatus: number }> {
+  const res = await apiFetch("/api/validation/diagnostics-jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    credentials: "include",
+  });
+  const data = (await res.json()) as JobStartResponse;
+  return { ...data, httpStatus: res.status };
+}
+
+function diagnosticsConfirmCopy(info: DiagnosticsConfirmInfo): { title: string; body: string } {
+  const duration = info.last_site_wide_duration_human ?? "unknown";
+  const ago = info.last_site_wide_run_ago || "never";
+  const urlBit =
+    info.last_site_wide_url_count != null ? ` (${info.last_site_wide_url_count} URLs)` : "";
+  if (info.scoped) {
+    return {
+      title: "Run scoped diagnostics?",
+      body:
+        `This is a scoped re-check (usually faster). Last full site-wide run was ${ago} and took ${duration}${urlBit} (reference only).`,
+    };
+  }
+  return {
+    title: "Run diagnostics?",
+    body:
+      ago === "never"
+        ? "No full site-wide diagnostics run is recorded yet. This can take several minutes depending on site size."
+        : `Last full site-wide run was ${ago} and took ${duration}${urlBit}.`,
+  };
+}
 
 type JobLogLine = {
   t: number;
@@ -274,6 +351,225 @@ async function pollDiagnosticsJob(
   }
 }
 
+type RecheckState = "idle" | "running" | "resolved" | "still_present" | "error";
+
+function RecheckIssueButton({
+  url,
+  code,
+  validator,
+  category,
+  onResolved,
+  startWithConfirm,
+}: {
+  url: string;
+  code: string;
+  validator?: string;
+  category?: string;
+  onResolved: () => void;
+  startWithConfirm: (body: Record<string, unknown>) => Promise<JobStartResponse>;
+}) {
+  const [state, setState] = useState<RecheckState>("idle");
+
+  const handleRecheck = async () => {
+    setState("running");
+    try {
+      const startData = await startWithConfirm({
+        urls: [url],
+        freshness: "hard",
+        ...(validator ? { validators: [validator] } : {}),
+        ...(category ? { categories: [category] } : {}),
+      });
+      if (startData.status === "busy") {
+        setState("error");
+        return;
+      }
+      if (startData.status !== "cached") {
+        if (!startData.job_id) {
+          setState("error");
+          return;
+        }
+        await pollDiagnosticsJob(startData.job_id);
+      }
+      // Check if the issue still exists in the refreshed cache
+      const issuesRes = await apiFetch(
+        `/api/validation/cache-issues?url=${encodeURIComponent(url)}`,
+        { credentials: "include" },
+      );
+      const issuesData = (await issuesRes.json()) as { issues: CachedIssueRow[] };
+      const stillPresent = issuesData.issues.some((i) => i.code === code);
+      if (!stillPresent) {
+        // Auto-dismiss from cache
+        await apiFetch("/api/validation/cache-issues/dismiss", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, code }),
+          credentials: "include",
+        });
+        setState("resolved");
+        onResolved();
+      } else {
+        setState("still_present");
+        // Even when the issue remains, re-check should update the "detected X ago"
+        // timestamp coming from cache. The list UI is driven by the shared cache
+        // query, so we must invalidate it here too.
+        onResolved();
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message === "cancelled") {
+        setState("idle");
+        return;
+      }
+      setState("error");
+    }
+  };
+
+  if (state === "resolved") {
+    return (
+      <span className="text-[10px] text-chart-2 flex items-center gap-1">
+        <CircleCheck className="h-3 w-3" /> resolved
+      </span>
+    );
+  }
+  if (state === "still_present") {
+    return (
+      <Button variant="outline" size="sm" className="h-6 text-[10px] gap-1" onClick={handleRecheck}>
+        <RefreshCw className="h-3 w-3" /> still present · re-check
+      </Button>
+    );
+  }
+  if (state === "error") {
+    return (
+      <Button variant="outline" size="sm" className="h-6 text-[10px] gap-1" onClick={handleRecheck}>
+        <RefreshCw className="h-3 w-3" /> re-check failed · retry
+      </Button>
+    );
+  }
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-6 text-[10px] gap-1 text-muted-foreground"
+      onClick={handleRecheck}
+      disabled={state === "running"}
+    >
+      {state === "running" ? (
+        <Loader2 className="h-3 w-3 animate-spin" />
+      ) : (
+        <RefreshCw className="h-3 w-3" />
+      )}
+      {state === "running" ? "checking…" : "re-check"}
+    </Button>
+  );
+}
+
+function RecheckFileIssueButton({
+  file,
+  code,
+  category,
+  validator,
+  onResolved,
+  startWithConfirm,
+}: {
+  file: string;
+  code: string;
+  category?: string;
+  validator?: string;
+  onResolved: () => void;
+  startWithConfirm: (body: Record<string, unknown>) => Promise<JobStartResponse>;
+}) {
+  const [state, setState] = useState<RecheckState>("idle");
+
+  const handleRecheck = async () => {
+    setState("running");
+    try {
+      const body: Record<string, unknown> = {
+        // Force a re-run so we don't depend on max_age freshness for this specific entry.
+        freshness: "hard",
+        file,
+      };
+      if (category) body.categories = [category];
+      if (validator) body.validators = [validator];
+      const startData = await startWithConfirm(body);
+      if (startData.status === "busy") {
+        setState("error");
+        return;
+      }
+      if (startData.status !== "cached") {
+        if (!startData.job_id) {
+          setState("error");
+          return;
+        }
+        await pollDiagnosticsJob(startData.job_id);
+      }
+      const issuesRes = await apiFetch(
+        `/api/validation/cache-issues?file=${encodeURIComponent(file)}`,
+        { credentials: "include" },
+      );
+      const issuesData = (await issuesRes.json()) as { issues: CachedIssueRow[] };
+      const stillPresent = issuesData.issues.some((i) => i.code === code);
+      if (!stillPresent) {
+        await apiFetch("/api/validation/cache-issues/dismiss", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ file, code }),
+          credentials: "include",
+        });
+        setState("resolved");
+        onResolved();
+      } else {
+        setState("still_present");
+        // Same as URL issues: if it still exists, we still want to refresh the
+        // cache so the "detected X ago" label updates.
+        onResolved();
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message === "cancelled") {
+        setState("idle");
+        return;
+      }
+      setState("error");
+    }
+  };
+
+  if (state === "resolved") {
+    return (
+      <span className="text-[10px] text-chart-2 flex items-center gap-1">
+        <CircleCheck className="h-3 w-3" /> resolved
+      </span>
+    );
+  }
+  if (state === "still_present") {
+    return (
+      <Button variant="outline" size="sm" className="h-6 text-[10px] gap-1" onClick={handleRecheck}>
+        <RefreshCw className="h-3 w-3" /> still present · re-check
+      </Button>
+    );
+  }
+  if (state === "error") {
+    return (
+      <Button variant="outline" size="sm" className="h-6 text-[10px] gap-1" onClick={handleRecheck}>
+        <RefreshCw className="h-3 w-3" /> re-check failed · retry
+      </Button>
+    );
+  }
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-6 text-[10px] gap-1 text-muted-foreground"
+      onClick={handleRecheck}
+      disabled={state === "running"}
+    >
+      {state === "running" ? (
+        <Loader2 className="h-3 w-3 animate-spin" />
+      ) : (
+        <RefreshCw className="h-3 w-3" />
+      )}
+      {state === "running" ? "checking…" : "re-check"}
+    </Button>
+  );
+}
+
 function cacheRowToValidatorIssue(row: CachedIssueRow): ValidatorIssue {
   return {
     type: row.severity === "error" ? "error" : "warning",
@@ -284,6 +580,86 @@ function cacheRowToValidatorIssue(row: CachedIssueRow): ValidatorIssue {
   };
 }
 
+type CacheFreshnessResponse = {
+  fresh: number;
+  stale: number;
+  total: number;
+  max_age_seconds: number;
+  last_site_wide_run_at: string | null;
+};
+
+type CoverageSummary = {
+  meanPercent: number;
+  fullyCovered: number;
+  totalUrls: number;
+  expectedValidators: number;
+};
+
+type CoverageUrlItem = {
+  url: string;
+  lastFullRunAt: string | null;
+  isFresh: boolean;
+  coveredCount: number;
+  expectedCount: number;
+  coveragePercent: number;
+  oldestCoveredAt: string | null;
+};
+
+type CoverageUrlsResponse = {
+  totalItems: number;
+  page: number;
+  pageSize: number;
+  coverage: CoverageSummary;
+  items: CoverageUrlItem[];
+};
+
+type DiagnosticsJobListItem = {
+  jobId: string;
+  status: string;
+  processed?: number;
+  total?: number;
+};
+
+function formatRelativeAgo(iso: string, nowMs: number = Date.now()): string {
+  const diffMs = nowMs - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (!Number.isFinite(diffMs) || Number.isNaN(mins)) return "unknown";
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+function formatLastSiteWideRun(iso: string): string {
+  const when = new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(iso));
+  return `Last site-wide run: ${when} (${formatRelativeAgo(iso)})`;
+}
+
+function formatInFlightJobStatus(job: {
+  status: string;
+  processed?: number;
+  total?: number;
+}): string {
+  const total = job.total ?? 0;
+  const processed = job.processed ?? 0;
+  if (total > 0) return `Job currently running (${processed}/${total})`;
+  if (job.status === "queued") return "Job currently running (queued)";
+  return "Job currently running";
+}
+
+function firstInFlightJob(
+  jobs: DiagnosticsJobListItem[] | undefined,
+): DiagnosticsJobListItem | undefined {
+  return jobs?.find((j) => j.status === "queued" || j.status === "running");
+}
+
+const FRESH_URLS_PAGE_SIZE = 50;
+
 function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   void onOpenLeads;
   const queryClient = useQueryClient();
@@ -293,17 +669,59 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const [search, setSearch] = useState("");
   const [pagePathFilter, setPagePathFilter] = useState("");
   const [pageFilterOpen, setPageFilterOpen] = useState(false);
-  const [severityFilters, setSeverityFilters] = useState<SeverityFilter[]>([]);
   const [categoryFilters, setCategoryFilters] = useState<Exclude<CategoryFilter, "all">[]>([]);
   const [validatorFilters, setValidatorFilters] = useState<string[]>([]);
   const [rerunValidator, setRerunValidator] = useState<string>("");
-  const [lastRun, setLastRun] = useState<Date | null>(null);
+  const [freshKpiView, setFreshKpiView] = useState<"issues" | "fresh_urls">("issues");
+  const [freshUrlSearch, setFreshUrlSearch] = useState("");
+  const [freshUrlFilter, setFreshUrlFilter] = useState<"all" | "fresh" | "not_fresh">("all");
+  const [freshUrlPage, setFreshUrlPage] = useState(1);
+  const [activeKpiTab, setActiveKpiTab] = useState<"errors" | "warnings" | "coverage" | "unique" | null>(null);
   const [jobPanel, setJobPanel] = useState<JobPanelState | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [clearCacheOpen, setClearCacheOpen] = useState(false);
+  const [confirmGate, setConfirmGate] = useState<{
+    info: DiagnosticsConfirmInfo;
+    resolve: (ok: boolean) => void;
+  } | null>(null);
+  const [confirmAdvancedOpen, setConfirmAdvancedOpen] = useState(false);
   const jobLogScrollRef = useRef<HTMLDivElement>(null);
   const hideJobPanelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { resolveModalOpen, setResolveModalOpen, activeConflict, openResolver } = useRedirectConflictResolver();
+
+  const startWithConfirm = async (body: Record<string, unknown>): Promise<JobStartResponse> => {
+    let data = await postDiagnosticsJobs(body);
+    if (data.httpStatus === 409 || data.status === "busy") {
+      return data;
+    }
+    if (data.status === "needs_confirm") {
+      const ok = await new Promise<boolean>((resolve) => {
+        setConfirmAdvancedOpen(false);
+        setConfirmGate({
+          info: {
+            message: data.message || "Confirm to run diagnostics.",
+            scoped: data.scoped === true,
+            last_site_wide_run_ago: data.last_site_wide_run_ago || "never",
+            last_site_wide_duration_human: data.last_site_wide_duration_human ?? null,
+            last_site_wide_url_count: data.last_site_wide_url_count ?? null,
+          },
+          resolve,
+        });
+      });
+      setConfirmGate(null);
+      if (!ok) {
+        throw new Error("cancelled");
+      }
+      data = await postDiagnosticsJobs({ ...body, confirm: true });
+    }
+    if (data.httpStatus === 409 || data.status === "busy") {
+      return data;
+    }
+    if (data.httpStatus >= 400 && data.status !== "needs_confirm") {
+      throw new Error(data.message || "Failed to start diagnostics job");
+    }
+    return data;
+  };
 
   useEffect(() => {
     const el = jobLogScrollRef.current;
@@ -327,6 +745,48 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   });
   const cacheIssues = cacheIssuesData?.issues ?? [];
 
+  const { data: cacheFreshness } = useQuery<CacheFreshnessResponse>({
+    queryKey: ["/api/validation/cache-freshness"],
+  });
+
+  const { data: coverageSummaryData } = useQuery<CoverageUrlsResponse>({
+    queryKey: ["/api/validation/cache-freshness-urls", "summary"],
+    queryFn: async () => {
+      const res = await apiFetch("/api/validation/cache-freshness-urls?page=1&pageSize=1", {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`Failed to load coverage summary (${res.status})`);
+      return (await res.json()) as CoverageUrlsResponse;
+    },
+  });
+
+  const { data: freshUrlsData, isFetching: isFreshUrlsFetching } = useQuery<CoverageUrlsResponse>({
+    queryKey: ["/api/validation/cache-freshness-urls", freshUrlSearch, freshUrlFilter, freshUrlPage],
+    enabled: freshKpiView === "fresh_urls",
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("page", String(freshUrlPage));
+      params.set("pageSize", String(FRESH_URLS_PAGE_SIZE));
+      params.set("filter", freshUrlFilter);
+      if (freshUrlSearch.trim()) params.set("q", freshUrlSearch.trim());
+      const res = await apiFetch(`/api/validation/cache-freshness-urls?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`Failed to load fresh URLs (${res.status})`);
+      return (await res.json()) as CoverageUrlsResponse;
+    },
+  });
+
+  const { data: jobsListData } = useQuery<{ jobs: DiagnosticsJobListItem[] }>({
+    queryKey: ["/api/validation/diagnostics-jobs"],
+    refetchInterval: (query) => {
+      if (jobPanel?.running) return 5000;
+      const jobs = query.state.data?.jobs ?? [];
+      if (jobs.some((j) => j.status === "queued" || j.status === "running")) return 5000;
+      return 15000;
+    },
+  });
+
   const { data: validatorsData } = useQuery<{
     validators: Array<{ name: string; description?: string; category?: string }>;
   }>({
@@ -337,18 +797,9 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const startJobMutation = useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
       if (hideJobPanelTimer.current) clearTimeout(hideJobPanelTimer.current);
-      const res = await apiFetch("/api/validation/diagnostics-jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        credentials: "include",
-      });
-      const data = (await res.json()) as JobStartResponse;
-      if (res.status === 409 || data.status === "busy") {
+      const data = await startWithConfirm(body);
+      if (data.status === "busy") {
         throw new Error(data.message || "Another diagnostics job is already running for this site.");
-      }
-      if (!res.ok) {
-        throw new Error((data as { message?: string }).message || "Failed to start diagnostics job");
       }
       if (data.status === "cached") {
         return { kind: "cached" as const, data };
@@ -392,12 +843,13 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
       scheduleHideJobPanel();
       void refetchCacheIssues();
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness-urls"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/diagnostics-jobs"] });
       if (outcome.kind === "cached") {
         toast({ title: "Cache fresh", description: "No stale URLs — showing cached diagnostics." });
-        setLastRun(new Date());
         return;
       }
-      setLastRun(new Date());
       toast({
         title: "Diagnostics completed",
         description: outcome.data.summary
@@ -406,6 +858,9 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
       });
     },
     onError: (err) => {
+      if (err instanceof Error && err.message === "cancelled") {
+        return;
+      }
       setJobPanel((prev) =>
         prev
           ? {
@@ -446,22 +901,13 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const runSingleMutation = useMutation({
     mutationFn: async (name: string) => {
       if (hideJobPanelTimer.current) clearTimeout(hideJobPanelTimer.current);
-      const res = await apiFetch("/api/validation/diagnostics-jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          validators: [name],
-          include_artifacts: true,
-          freshness: "hard",
-        }),
-        credentials: "include",
+      const data = await startWithConfirm({
+        validators: [name],
+        include_artifacts: true,
+        freshness: "hard",
       });
-      const data = (await res.json()) as JobStartResponse;
-      if (res.status === 409 || data.status === "busy") {
+      if (data.status === "busy") {
         throw new Error(data.message || "Another diagnostics job is already running.");
-      }
-      if (!res.ok) {
-        throw new Error((data as { message?: string }).message || "Failed to start job");
       }
       if (data.status === "cached") {
         return { name };
@@ -506,13 +952,18 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
       scheduleHideJobPanel();
       void refetchCacheIssues();
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
-      setLastRun(new Date());
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness-urls"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/diagnostics-jobs"] });
       toast({
         title: "Validator finished",
         description: `Updated cache for ${data.name}.`,
       });
     },
     onError: (err) => {
+      if (err instanceof Error && err.message === "cancelled") {
+        return;
+      }
       setJobPanel((prev) =>
         prev
           ? {
@@ -576,10 +1027,12 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     },
     onSuccess: () => {
       setClearCacheOpen(false);
-      setLastRun(null);
       void refetchCacheIssues();
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-summary"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-freshness-urls"] });
       void queryClient.invalidateQueries({ queryKey: ["/api/validation/cache-issues"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/validation/diagnostics-jobs"] });
       toast({
         title: "Validation cache cleared",
         description: "Run Refresh stale or Hard refresh to rebuild diagnostics.",
@@ -593,11 +1046,6 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
       });
     },
   });
-
-  const severityOptions: { key: SeverityFilter; label: string }[] = [
-    { key: "error", label: "Errors" },
-    { key: "warning", label: "Warnings" },
-  ];
 
   const scopeCategories: { key: Exclude<CategoryFilter, "all">; label: string }[] = [
     { key: "seo", label: "SEO" },
@@ -614,12 +1062,6 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   ).sort();
 
   const filteredIssues = cacheIssues.filter((issue) => {
-    if (
-      severityFilters.length > 0 &&
-      !severityFilters.includes(issue.severity as SeverityFilter)
-    ) {
-      return false;
-    }
     if (
       categoryFilters.length > 0 &&
       !categoryFilters.includes((issue.category || "unknown") as Exclude<CategoryFilter, "all">)
@@ -662,8 +1104,28 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     urls: new Set(filteredIssues.map((i) => i.url).filter(Boolean)).size,
   };
 
+  const totalSummary = {
+    errors: cacheIssues.filter((i) => i.severity === "error").length,
+    warnings: cacheIssues.filter((i) => i.severity === "warning").length,
+    urls: new Set(cacheIssues.map((i) => i.url).filter(Boolean)).size,
+  };
+
   const jobPending = startJobMutation.isPending || runSingleMutation.isPending || clearCacheMutation.isPending;
   const displayedIssues = filteredIssues.slice(0, ISSUE_DISPLAY_CAP);
+  const coverageSummary = coverageSummaryData?.coverage;
+  const freshUrlItems = freshUrlsData?.items ?? [];
+  const freshUrlTotalItems = freshUrlsData?.totalItems ?? 0;
+  const freshUrlTotalPages = Math.max(1, Math.ceil(freshUrlTotalItems / FRESH_URLS_PAGE_SIZE));
+  const inFlightJob = jobPanel?.running
+    ? jobPanel
+    : firstInFlightJob(jobsListData?.jobs);
+  const diagnosticsStatusLine = inFlightJob
+    ? formatInFlightJobStatus(inFlightJob)
+    : cacheFreshness === undefined
+      ? ""
+      : cacheFreshness.last_site_wide_run_at
+        ? formatLastSiteWideRun(cacheFreshness.last_site_wide_run_at)
+        : "No site-wide diagnostics run yet.";
 
   const rerunOptions = (() => {
     const names = new Set<string>();
@@ -673,6 +1135,15 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
     for (const n of validatorNamesInCache) names.add(n);
     return Array.from(names).sort();
   })();
+
+  const showIssuesAll = activeKpiTab === null && freshKpiView === "issues";
+  const errorsKpiActive = activeKpiTab === "errors" || showIssuesAll;
+  const warningsKpiActive = activeKpiTab === "warnings" || showIssuesAll;
+  const coverageKpiActive = activeKpiTab === "coverage";
+  const uniqueKpiActive = activeKpiTab === "unique";
+
+  const kpiActiveClass = (active: boolean) =>
+    active ? "bg-muted/70 border-b-0 -mb-px" : "bg-card";
 
   return (
     <div className="space-y-6">
@@ -684,10 +1155,14 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
             <code className="text-xs">validation-cache.json</code>. Use{" "}
             <strong className="text-foreground font-medium">Page or URL</strong> to filter by sitemap page;
             open the live page + DebugBubble for in-context fixes (Page Analysis tab removed).
-            Refresh / Hard refresh / Re-run validator update the store via a{" "}
-            <strong className="text-foreground font-medium">background worker</strong>; the job panel shows
-            milestones (fixed height, scrolls). Cached issues refresh when the job finishes. Delete cache
-            wipes the store until the next refresh. One job runs at a time per site.
+            <strong className="text-foreground font-medium"> Validation Coverage</strong> shows average entry-local
+            validator coverage and fully-covered URLs. Under Refresh, an in-flight
+            job shows while queued/running; otherwise the last <em>site-wide</em> run (Refresh / Hard refresh,
+            not a page save). Refresh / Hard refresh / Re-run validator update the store via a{" "}
+            <strong className="text-foreground font-medium">background worker</strong>; starting a new job asks for
+            confirm and shows the last full site-wide duration. The job panel shows milestones (fixed height, scrolls).
+            Cached issues refresh when the job finishes. Delete cache wipes the store until the next refresh.
+            One job runs at a time per site.
           </p>
           <button
             type="button"
@@ -699,11 +1174,13 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
           </button>
           {showAdvanced && (
             <ul className="list-disc pl-5 text-xs space-y-1">
-              <li><code>server/services/diagnosticsJobService.ts</code> — parent job orchestration + IPC</li>
+              <li><code>server/services/diagnosticsJobService.ts</code> — parent job orchestration + IPC + confirm gate (<code>needs_confirm</code>)</li>
               <li><code>scripts/validation/diagnostics-worker.ts</code> — forked worker that runs validators</li>
-              <li><code>{"{contentRoot}/validation-cache.json"}</code> — issue cache (GCS <code>{"{site}/sync/validation-cache.json"}</code> in prod)</li>
-              <li><code>{"{contentRoot}/.cache/diagnostics-jobs/"}</code> — job envelopes + results files</li>
-              <li>API: <code>POST/GET /api/validation/diagnostics-jobs</code>, <code>GET /api/validation/cache-issues</code></li>
+              <li><code>{"{contentRoot}/validation-cache.json"}</code> — issue cache (GCS <code>{"{site}/sync/validation-cache.json"}</code> in prod). <code>lastFullRunAt</code> (per URL / any full stamp) vs <code>lastSiteWideRunAt</code> (Refresh / Hard refresh / site-wide validators)</li>
+              <li><code>scripts/validation/shared/runClass.ts</code> — <code>ENTRY_LOCAL_VALIDATOR_NAMES</code> drives coverage denominator</li>
+              <li><code>{"{contentRoot}/.cache/diagnostics-jobs/"}</code> — job envelopes + results files (duration stats for confirm dialog)</li>
+              <li>API: <code>POST/GET /api/validation/diagnostics-jobs</code> (<code>confirm: true</code> when starting), <code>GET /api/validation/cache-issues</code>, <code>GET /api/validation/cache-freshness</code>, <code>GET /api/validation/cache-freshness-urls</code></li>
+              <li>MCP <code>run_entry_diagnostics</code> — same confirm gate (<code>confirm_run_diagnostics</code>); mid-run poll returns URLs flushed since job start only</li>
             </ul>
           )}
         </CardContent>
@@ -766,12 +1243,8 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
           <p className="text-sm text-muted-foreground mt-1 max-w-xl">
             Shared validation store for the whole site. Page bubbles show the same issues filtered to each entry.
           </p>
-          {lastRun && (
-            <p className="text-xs text-muted-foreground mt-1" data-testid="text-last-run">
-              Last run: {lastRun.toLocaleTimeString()}
-            </p>
-          )}
         </div>
+        <div className="flex flex-col items-end gap-1">
         {canMutateMetrics && (
           <div className="flex flex-wrap items-center gap-2">
             <Select value={rerunValidator || undefined} onValueChange={setRerunValidator}>
@@ -850,6 +1323,12 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
             </DropdownMenu>
           </div>
         )}
+          {diagnosticsStatusLine ? (
+            <p className="text-xs text-muted-foreground text-right" data-testid="text-diagnostics-status">
+              {diagnosticsStatusLine}
+            </p>
+          ) : null}
+        </div>
       </div>
 
       <Dialog open={clearCacheOpen} onOpenChange={setClearCacheOpen}>
@@ -888,32 +1367,196 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         </DialogContent>
       </Dialog>
 
-      {cacheIssues.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3" data-testid="cache-summary-bar">
-          <Card style={{ borderRadius: "0.8rem" }}>
+      <Dialog
+        open={!!confirmGate}
+        onOpenChange={(open) => {
+          if (!open && confirmGate) {
+            confirmGate.resolve(false);
+            setConfirmGate(null);
+          }
+        }}
+      >
+        <DialogContent data-testid="dialog-confirm-diagnostics">
+          <DialogHeader>
+            <DialogTitle>
+              {confirmGate ? diagnosticsConfirmCopy(confirmGate.info).title : "Run diagnostics?"}
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  {confirmGate
+                    ? diagnosticsConfirmCopy(confirmGate.info).body
+                    : "Confirm to start a diagnostics job."}
+                </p>
+                <p className="text-foreground">
+                  Diagnostics can take minutes on a full site. Confirm only when you want a new background job.
+                </p>
+                <button
+                  type="button"
+                  className="text-xs text-primary underline-offset-2 hover:underline"
+                  onClick={() => setConfirmAdvancedOpen((v) => !v)}
+                  data-testid="button-diagnostics-confirm-read-more"
+                >
+                  {confirmAdvancedOpen ? "Hide advanced" : "Read more (advanced)"}
+                </button>
+                {confirmAdvancedOpen && (
+                  <ul className="list-disc pl-5 text-xs space-y-1 text-left">
+                    <li>
+                      <code className="text-[10px]">server/services/diagnosticsJobService.ts</code> — confirm gate +
+                      last full site-wide duration from job envelopes
+                    </li>
+                    <li>
+                      <code className="text-[10px]">{"{contentRoot}/.cache/diagnostics-jobs/"}</code> — job envelopes
+                      used for duration stats
+                    </li>
+                    <li>
+                      MCP <code className="text-[10px]">run_entry_diagnostics</code> uses the same gate (
+                      <code className="text-[10px]">confirm: true</code> /{" "}
+                      <code className="text-[10px]">confirm_run_diagnostics</code>)
+                    </li>
+                  </ul>
+                )}
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                confirmGate?.resolve(false);
+                setConfirmGate(null);
+              }}
+              data-testid="button-cancel-diagnostics-confirm"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                confirmGate?.resolve(true);
+                setConfirmGate(null);
+              }}
+              data-testid="button-confirm-diagnostics-run"
+            >
+              Run diagnostics
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <div className="space-y-0">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 border-b border-border" data-testid="cache-summary-bar">
+          <Card
+            role="button"
+            tabIndex={0}
+            aria-pressed={errorsKpiActive}
+            className={`rounded-none cursor-pointer ${kpiActiveClass(errorsKpiActive)}`}
+            onClick={() => {
+              setActiveKpiTab("errors");
+              setFreshKpiView("issues");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setActiveKpiTab("errors");
+                setFreshKpiView("issues");
+              }
+            }}
+          >
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-destructive">{filteredSummary.errors}</p>
+              <p className="text-2xl font-bold text-destructive">{totalSummary.errors}</p>
               <p className="text-xs text-muted-foreground">Errors</p>
             </CardContent>
           </Card>
-          <Card style={{ borderRadius: "0.8rem" }}>
+          <Card
+            role="button"
+            tabIndex={0}
+            aria-pressed={warningsKpiActive}
+            className={`rounded-none cursor-pointer ${kpiActiveClass(warningsKpiActive)}`}
+            onClick={() => {
+              setActiveKpiTab("warnings");
+              setFreshKpiView("issues");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setActiveKpiTab("warnings");
+                setFreshKpiView("issues");
+              }
+            }}
+          >
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-chart-2">{filteredSummary.warnings}</p>
+              <p className="text-2xl font-bold text-chart-2">{totalSummary.warnings}</p>
               <p className="text-xs text-muted-foreground">Warnings</p>
             </CardContent>
           </Card>
-          <Card style={{ borderRadius: "0.8rem" }}>
+          <Card
+            role="button"
+            tabIndex={0}
+            aria-pressed={uniqueKpiActive}
+            className={`rounded-none cursor-pointer ${kpiActiveClass(uniqueKpiActive)}`}
+            onClick={() => {
+              setActiveKpiTab("unique");
+              setFreshKpiView("fresh_urls");
+              setFreshUrlFilter("all");
+              setFreshUrlSearch("");
+              setFreshUrlPage(1);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setActiveKpiTab("unique");
+                setFreshKpiView("fresh_urls");
+                setFreshUrlFilter("all");
+                setFreshUrlSearch("");
+                setFreshUrlPage(1);
+              }
+            }}
+          >
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-foreground">{filteredSummary.urls}</p>
+              <p className="text-2xl font-bold text-foreground">{totalSummary.urls}</p>
               <p className="text-xs text-muted-foreground">Unique URLs</p>
             </CardContent>
           </Card>
+          <Card
+            role="button"
+            tabIndex={0}
+            aria-pressed={coverageKpiActive}
+            className={`rounded-none cursor-pointer ${kpiActiveClass(coverageKpiActive)}`}
+            onClick={() => {
+              setActiveKpiTab("coverage");
+              setFreshKpiView("fresh_urls");
+              setFreshUrlFilter("fresh");
+              setFreshUrlSearch("");
+              setFreshUrlPage(1);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setActiveKpiTab("coverage");
+                setFreshKpiView("fresh_urls");
+                setFreshUrlFilter("fresh");
+                setFreshUrlSearch("");
+                setFreshUrlPage(1);
+              }
+            }}
+          >
+            <CardContent className="p-4 text-center">
+              <p className="text-2xl font-bold text-foreground" data-testid="text-coverage-mean">
+                {coverageSummary ? `${coverageSummary.meanPercent}%` : "—"}
+              </p>
+              <p className="text-xs text-muted-foreground">Avg coverage</p>
+              {coverageSummary && (
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {coverageSummary.fullyCovered}/{coverageSummary.totalUrls} fully covered
+                </p>
+              )}
+            </CardContent>
+          </Card>
         </div>
-      )}
 
-      {cacheIssues.length > 0 && (
+      {freshKpiView === "issues" && cacheIssues.length > 0 && (
         <div className="space-y-3" data-testid="cache-issue-filters">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 border-x border-border pt-3 px-6 bg-muted">
             <div className="relative flex-1 min-w-[200px] max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -970,61 +1613,6 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               </Popover>
             </div>
             <div className="flex flex-wrap items-center gap-1">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="relative toggle-elevate"
-                    data-testid="button-severity-filter"
-                  >
-                    Severity
-                    <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-70" />
-                    <FilterCornerBadge count={severityFilters.length} />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-72 p-3 space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      Toggle severity to filter issues
-                    </p>
-                    {severityFilters.length > 0 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => setSeverityFilters([])}
-                        data-testid="button-severity-clear"
-                      >
-                        Clear
-                      </Button>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-1.5" data-testid="severity-tag-cloud">
-                    {severityOptions.map((s) => {
-                      const active = severityFilters.includes(s.key);
-                      return (
-                        <Button
-                          key={s.key}
-                          variant={active ? "default" : "outline"}
-                          size="sm"
-                          className="h-7 toggle-elevate"
-                          onClick={() => {
-                            setSeverityFilters((prev) =>
-                              prev.includes(s.key)
-                                ? prev.filter((v) => v !== s.key)
-                                : [...prev, s.key],
-                            );
-                          }}
-                          data-testid={`button-severity-${s.key}`}
-                        >
-                          {s.label}
-                        </Button>
-                      );
-                    })}
-                  </div>
-                </PopoverContent>
-              </Popover>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -1142,7 +1730,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         </div>
       )}
 
-      {jobPending && cacheIssues.length === 0 && (
+      {freshKpiView === "issues" && jobPending && cacheIssues.length === 0 && (
         <div className="flex items-center justify-center py-16">
           <div className="text-center">
             <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent" />
@@ -1151,8 +1739,8 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         </div>
       )}
 
-      {!jobPending && cacheIssues.length === 0 && (
-        <Card style={{ borderRadius: "0.8rem" }}>
+      {freshKpiView === "issues" && !jobPending && cacheIssues.length === 0 && (
+        <Card className="rounded-t-none border-t-0 bg-muted/70">
           <CardContent className="p-8 text-center">
             <Stethoscope className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <p className="text-muted-foreground mb-4">
@@ -1183,15 +1771,15 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
         </Card>
       )}
 
-      {cacheIssues.length > 0 && (
-        <Card style={{ borderRadius: "0.8rem" }} data-testid="cached-issues-panel">
+      {freshKpiView === "issues" && cacheIssues.length > 0 && (
+        <Card className="rounded-t-none border-t-0 bg-muted/70" data-testid="cached-issues-panel">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">
               Cached issues ({filteredIssues.length}
               {filteredIssues.length !== cacheIssues.length ? ` of ${cacheIssues.length}` : ""})
             </CardTitle>
           </CardHeader>
-          <CardContent className="max-h-[32rem] overflow-auto space-y-2">
+          <CardContent className="max-h-[32rem] overflow-auto space-y-2 !p-0">
             {displayedIssues.length === 0 ? (
               <p className="text-sm text-muted-foreground py-6 text-center" data-testid="text-no-issues-match">
                 No issues match your filters
@@ -1200,10 +1788,13 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               displayedIssues.map((issue, idx) => {
                 const asValidatorIssue = cacheRowToValidatorIssue(issue);
                 const conflict = parseRedirectConflict(asValidatorIssue);
+                const rowKey = `${issue.url || issue.file || "site"}|${issue.code}|${
+                  issue.validator || ""
+                }|${issue.category || ""}|${issue.severity}`;
                 return (
                   <div
-                    key={`${issue.url}-${issue.code}-${issue.validator}-${idx}`}
-                    className="text-xs border-b border-border/60 pb-2"
+                    key={rowKey}
+                    className="text-xs border-b border-border/60 px-4 py-2 hover:bg-white"
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       <span
@@ -1222,6 +1813,51 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                         </Badge>
                       )}
                       <code>{issue.code}</code>
+                      {(() => {
+                        const label = issueLayerLabel(issue.entryKey, issue.file);
+                        if (!label) return null;
+                        return (
+                          <Badge
+                            variant="secondary"
+                            className="text-[10px]"
+                            data-testid="badge-issue-layer"
+                          >
+                            {label}
+                          </Badge>
+                        );
+                      })()}
+                      {issue.lastFullRunAt && (
+                        <span className="text-muted-foreground text-[10px] ml-auto">
+                          detected {formatDistanceToNow(new Date(issue.lastFullRunAt), { addSuffix: true })}
+                        </span>
+                      )}
+                      {issue.url ? (
+                        <RecheckIssueButton
+                          url={issue.url}
+                          code={issue.code}
+                          validator={issue.validator}
+                          category={issue.category}
+                          startWithConfirm={startWithConfirm}
+                          onResolved={() =>
+                            void queryClient.invalidateQueries({
+                              queryKey: ["/api/validation/cache-issues"],
+                            })
+                          }
+                        />
+                      ) : issue.file ? (
+                        <RecheckFileIssueButton
+                          file={issue.file}
+                          code={issue.code}
+                          category={issue.category}
+                          validator={issue.validator}
+                          startWithConfirm={startWithConfirm}
+                          onResolved={() =>
+                            void queryClient.invalidateQueries({
+                              queryKey: ["/api/validation/cache-issues"],
+                            })
+                          }
+                        />
+                      ) : null}
                       {conflict && (
                         <Button
                           variant="outline"
@@ -1235,9 +1871,13 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                         </Button>
                       )}
                     </div>
-                    <div className="text-foreground mt-0.5">{issue.message}</div>
+                    <div className="text-foreground mt-0.5">
+                      {formatSitePathsInText(issue.message, formatSitePath)}
+                    </div>
                     {issue.suggestion && (
-                      <div className="text-muted-foreground italic mt-0.5">{issue.suggestion}</div>
+                      <div className="text-muted-foreground italic mt-0.5">
+                        {formatSitePathsInText(issue.suggestion, formatSitePath)}
+                      </div>
                     )}
                     {issue.url && <div className="text-muted-foreground">{issue.url}</div>}
                     {issue.file && (
@@ -1257,6 +1897,136 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
           </CardContent>
         </Card>
       )}
+
+      {freshKpiView === "fresh_urls" && (
+        <Card className="rounded-t-none border-t-0 bg-muted/70" data-testid="fresh-urls-panel">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Coverage URLs ({freshUrlTotalItems})</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2 bg-muted rounded-md p-2">
+              <div className="relative flex-1 min-w-[220px] max-w-sm">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search URLs…"
+                  value={freshUrlSearch}
+                  onChange={(e) => {
+                    setFreshUrlSearch(e.target.value);
+                    setFreshUrlPage(1);
+                  }}
+                  className="pl-10"
+                  data-testid="input-search-fresh-urls"
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                {[
+                  ["all", "All"],
+                  ["fresh", "Fresh"],
+                  ["not_fresh", "Not fresh"],
+                ].map(([value, label]) => (
+                  <Button
+                    key={value}
+                    size="sm"
+                    variant={freshUrlFilter === value ? "default" : "outline"}
+                    onClick={() => {
+                      setFreshUrlFilter(value as "all" | "fresh" | "not_fresh");
+                      setFreshUrlPage(1);
+                    }}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div className="max-h-[32rem] overflow-auto space-y-2">
+              {isFreshUrlsFetching ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">Loading URLs…</p>
+              ) : freshUrlItems.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">No URLs match your search.</p>
+              ) : (
+                freshUrlItems.map((item) => (
+                  <div key={item.url} className="text-xs border-b border-border/60 pb-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant="outline"
+                        className={item.isFresh
+                          ? "text-[10px] border-green-500/40 bg-green-500/10 text-green-400"
+                          : "text-[10px] border-destructive/40 bg-destructive/10 text-destructive"}
+                      >
+                        {item.isFresh ? "fresh" : "not fresh"}
+                      </Badge>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Badge variant="outline" className="text-[10px] cursor-pointer">
+                            {item.coveredCount}/{item.expectedCount} · {item.coveragePercent}%
+                          </Badge>
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="w-72 text-sm space-y-1.5">
+                          <p className="font-medium text-foreground">Validator coverage</p>
+                          <p className="text-muted-foreground">
+                            <span className="font-medium text-foreground">{item.coveredCount} of {item.expectedCount}</span> checks have run on this URL ({item.coveragePercent}%).
+                          </p>
+                          <p className="text-muted-foreground text-xs">
+                            Each "check" is a validator — a rule that scans this page for issues (broken links, SEO fields, required content, etc.). A higher number means more of the site's checks have looked at this page.
+                          </p>
+                          {item.coveredCount < item.expectedCount && (
+                            <p className="text-xs text-amber-400">
+                              {item.expectedCount - item.coveredCount} check{item.expectedCount - item.coveredCount === 1 ? "" : "s"} haven't run yet. Try "Hard refresh" to revalidate all URLs.
+                            </p>
+                          )}
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2 mt-0.5">
+                      <div className="text-foreground">{item.url}</div>
+                      <div className="text-muted-foreground shrink-0">
+                        {item.lastFullRunAt ? `Last full run ${formatRelativeAgo(item.lastFullRunAt)}` : "Never fully validated"}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {freshUrlTotalPages > 1 && (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-muted-foreground">
+                  Page {freshUrlPage} of {freshUrlTotalPages} · {freshUrlTotalItems} URLs
+                </p>
+                <Pagination className="mx-0 w-auto justify-end">
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        href="#"
+                        aria-disabled={freshUrlPage <= 1}
+                        className={freshUrlPage <= 1 ? "pointer-events-none opacity-50" : undefined}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (freshUrlPage > 1) setFreshUrlPage((p) => p - 1);
+                        }}
+                      />
+                    </PaginationItem>
+                    <PaginationItem>
+                      <PaginationNext
+                        href="#"
+                        aria-disabled={freshUrlPage >= freshUrlTotalPages}
+                        className={freshUrlPage >= freshUrlTotalPages ? "pointer-events-none opacity-50" : undefined}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (freshUrlPage < freshUrlTotalPages) setFreshUrlPage((p) => p + 1);
+                        }}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      </div>
 
       <RedirectConflictResolverModal
         open={resolveModalOpen}

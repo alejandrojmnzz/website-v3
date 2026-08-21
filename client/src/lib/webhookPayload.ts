@@ -148,6 +148,7 @@ export function buildWebhookSamplePayload(
   if (session.utm?.utm_plan) sessionOverrides.utm_plan = session.utm.utm_plan;
   if (session.utm?.ppc_tracking_id) sessionOverrides.ppc_tracking_id = session.utm.ppc_tracking_id;
   if (session.utm?.referral) sessionOverrides.referral = session.utm.referral;
+  if (session.utm?.referral_key) sessionOverrides.referral_key = session.utm.referral_key;
   if (session.utm?.coupon) sessionOverrides.coupon = session.utm.coupon;
 
   return buildSamplePayload({ ...formSettingsOverrides, ...sessionOverrides });

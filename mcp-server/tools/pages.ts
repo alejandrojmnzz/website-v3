@@ -19,7 +19,12 @@ import {
   listMcpSites,
 } from "../lib/content.js";
 import { assertSafeSegment, assertSafeLocale, assertWithinBase } from "../lib/sanitize.js";
-import { checkCap, denyResponse } from "../lib/auth.js";
+import { checkCap, denyResponse, denyUnlessContentView, denyUnlessContentViewOrSeo } from "../lib/auth.js";
+import {
+  grantsCanMutateMetrics,
+  visibleContentTypes,
+  type CatalogGrant,
+} from "../lib/tool-catalog.js";
 import { getTokenUsername } from "../lib/oauth.js";
 import { buildEditorSystemHints } from "../../shared/editorSystemHints.js";
 import { promoteWarnings, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
@@ -34,6 +39,14 @@ import {
   sharedStructuralEnvelope,
   type LayoutTarget,
 } from "../lib/page-tool-helpers.js";
+import {
+  SEO_INCLUDE_IN_CLUSTERING,
+  deriveIncludeInClustering,
+  expandSeoClusterToggle,
+  isSeoIncludeInClusteringPath,
+} from "../lib/seo-cluster-toggle.js";
+import { isSeoMonitoringEnabled } from "../../server/seo-monitoring.js";
+import type { SeoBlock } from "../../server/seo-fields.js";
 import {
   pathForLayoutTarget,
   versioningApiSlug,
@@ -50,6 +63,10 @@ import {
   prepareArticleAddStamp,
 } from "../lib/article-hints.js";
 import {
+  hintsAfterAddModal,
+  hintsAfterReplaceModals,
+} from "../lib/modal-hints.js";
+import {
   SITE_PARAM_DESC,
   MULTI_SITE_TOOL_BLURB,
   siteFailResult,
@@ -59,6 +76,7 @@ import {
   collectProposedUrlParamValues,
   missingRequiredFields,
   getEditorConfig,
+  editorRequiredModes,
   bodyModelForConfig,
   createViaForConfig,
 } from "../lib/entry-helpers.js";
@@ -71,7 +89,11 @@ import {
   listLiveLocaleFiles,
 } from "../lib/translate-entry.js";
 import { applyPurchasableToRecord, ecommerceManager, PURCHASABLE_FIELD } from "../../server/ecommerce/ecommerce-manager.js";
-import { isKnownSeoFieldPath, SEO_YAML_KEY } from "../../server/content-types.js";
+import { isKnownSeoFieldPath, SEO_YAML_KEY, resolveEntryUpdatedAtDetail } from "../../server/content-types.js";
+import {
+  applyEditorialUpdatedAtToData,
+  operationsFromLocalePayload,
+} from "../../server/editorial-updated-at.js";
 import { getSeoIndexEntry, SEO_INDEX_FILENAME } from "../../server/seo-index.js";
 import {
   collectFormSourceHitsFromNode,
@@ -83,6 +105,29 @@ const MAIN_SERVER_PORT = process.env.PORT || "5000";
 // Internal credential for loopback calls to capability-gated main-server endpoints.
 // Must match the value used in server/routes/_helpers.ts trusted-internal bypass.
 export const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
+
+const UPDATED_AT_STAMP_WARNING: McpWarning = {
+  code: "updated_at_stamp",
+  message:
+    "title / meta.page_title / meta.description / section copy or images bump locale updated_at to now (overwrites a manual backdate). seo.*, meta.robots, redirects, og_image, priority, and change_frequency do not. Explicit updated_at-only saves do not bump. Variant save does not change live sitemap lastmod until promote.",
+};
+
+function resolvedUpdatedAtFields(
+  contentType: string,
+  slug: string,
+  locale: string,
+  contentRoot: string,
+  record?: Record<string, unknown> | null,
+): { updated_at: string | null; updated_at_source: "yaml" | "published_at" | null } {
+  const { iso, source } = resolveEntryUpdatedAtDetail({
+    contentType,
+    slug,
+    locale,
+    record,
+    contentRoot,
+  });
+  return { updated_at: iso, updated_at_source: source };
+}
 
 /** Page-level WebSite/Organization schema_org overrides — site schema-org.yml is unchanged. */
 function schemaOrgPageOverrideWarnings(section: Record<string, unknown> | null | undefined): McpWarning[] {
@@ -226,6 +271,31 @@ async function callEditSectionsApi(
     const data = await res.json() as Record<string, unknown>;
     if (!res.ok) {
       const errMsg = (data.error as string) || `Server error: ${res.status}`;
+      if (/Section index \d+ does not exist/.test(errMsg)) {
+        return {
+          error: fail(errMsg, {
+            warnings: [
+              {
+                code: "section_index_no_create",
+                message:
+                  "Does not create sections[] slots or overlay patches. Reload indexes, or edit the template (single.{locale}.yml) with layout_target type_single. Overlay merge: server/section-merge.ts.",
+              },
+            ],
+            next_actions: [
+              {
+                tool: "get_entry_fields",
+                reason: "Reload current section indexes before retrying update_fields.",
+                priority: "required",
+                args_hint: {
+                  slug: params.slug,
+                  locale: params.locale,
+                  contentType: params.contentType,
+                },
+              },
+            ],
+          }),
+        };
+      }
       // Product-scope / ecommerce validation — guide agents to exact property paths
       if (
         /ecommerce_products|programs\[\]\.id|ecommerce scope|purchasable product/i.test(errMsg)
@@ -320,16 +390,46 @@ async function callEditCommonApi(
  * Side effect: also clears the sitemap cache. Does not refetch remote databases;
  * known URLs rebuild from the current SQLite snapshot only.
  */
-async function callRefreshCacheApi(contentType?: string, domain?: string): Promise<void> {
+async function callRefreshCacheApi(
+  contentType?: string,
+  domain?: string,
+): Promise<{ ok: boolean; knownUrlCount?: number; error?: string }> {
   try {
     const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/refresh-cache${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
-    await fetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: internalHeaders(),
       body: JSON.stringify(contentType ? { contentType } : {}),
     });
+    const data = await res.json() as { knownUrlCount?: number; error?: string };
+    if (!res.ok) {
+      return { ok: false, error: data.error || `HTTP ${res.status}` };
+    }
+    return { ok: true, knownUrlCount: data.knownUrlCount };
   } catch {
-    // Non-fatal: cache will be refreshed on the next request.
+    return { ok: false, error: "refresh-cache request failed" };
+  }
+}
+
+async function callRenameSlugApi(
+  params: { contentType: string; folderSlug: string; locale: string; newSlug: string; createRedirect?: boolean },
+  mcpToken?: string,
+  domain?: string,
+): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; error: McpTextResult }> {
+  try {
+    const url = `http://localhost:${MAIN_SERVER_PORT}/api/content/rename-slug${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: internalHeaders(mcpToken),
+      body: JSON.stringify(params),
+    });
+    const data = await res.json() as Record<string, unknown>;
+    if (!res.ok) {
+      return { ok: false, error: fail((data.error as string) || `Server error: ${res.status}`) };
+    }
+    return { ok: true, data };
+  } catch (e) {
+    return { ok: false, error: fail(`Failed to call rename-slug API: ${(e as Error).message}`) };
   }
 }
 
@@ -544,7 +644,12 @@ function getCachedValidationIssues(
   }
 }
 
-export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?: string): void {
+export function registerPageTools(
+  mcp: McpServer,
+  _mcpAuthor?: string,
+  mcpToken?: string,
+  grants?: CatalogGrant[],
+): void {
   // list_sites
   mcp.tool(
     "list_sites",
@@ -582,7 +687,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Static single_template types (e.g. blog) ARE listed — they are YAML, not DB. " +
     "Use get_content_type_info to see db_backed vs single_template. " +
     MULTI_SITE_TOOL_BLURB + " " +
-    "Optional filters (AND): contentType, locale, slugs, search.",
+    "Optional filters (AND): contentType, locale, slugs, search. Requires content_view.",
     {
       contentType: z.string().optional().describe("Restrict to one content type, e.g. 'program', 'blog', or 'landing'"),
       locale: z.string().optional().describe("Only return entries that have this locale available, e.g. 'en' or 'es'"),
@@ -591,10 +696,16 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ contentType, locale, slugs, search, site }) => {
+      const viewDenied = await denyUnlessContentView(mcpToken, contentType, grants);
+      if (viewDenied) return viewDenied;
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error, "list_entries", { contentType, locale, slugs, search });
       const { contentPath } = siteResult;
       let pages = scanPages(contentPath);
+      const allowedTypes = grants ? visibleContentTypes(grants) : null;
+      if (allowedTypes) {
+        pages = pages.filter(p => allowedTypes.has(p.contentType));
+      }
       if (contentType) {
         pages = pages.filter(p => p.contentType === contentType);
       }
@@ -614,6 +725,30 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       }
       return { content: [{ type: "text", text: JSON.stringify(pages, null, 2) }] };
     }
+  );
+
+  mcp.tool(
+    "refresh_content_index",
+    "Rebuild in-memory URL routing and related caches from disk after content writes. " +
+    "Use when a write succeeded on disk but a new URL is still not resolving. " +
+    MULTI_SITE_TOOL_BLURB,
+    {
+      contentType: z.string().optional().describe("Optional content type hint for refresh scope."),
+      site: z.string().optional().describe(SITE_PARAM_DESC),
+    },
+    async ({ contentType, site }) => {
+      const siteResult = resolveSiteContext(site);
+      if (!siteResult.ok) return siteFailResult(siteResult.error, "refresh_content_index", { contentType });
+      const refresh = await callRefreshCacheApi(contentType, siteResult.domain);
+      if (!refresh.ok) {
+        return fail(`Failed to refresh content index: ${refresh.error || "unknown error"}`);
+      }
+      return ok({
+        success: true,
+        message: "Content index refreshed.",
+        ...(refresh.knownUrlCount !== undefined ? { known_url_count: refresh.knownUrlCount } : {}),
+      });
+    },
   );
 
   // ── Shared resolution helper used by get_entry_content and get_entry_seo ──────
@@ -656,13 +791,34 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     const urlPattern = resolved.config.url_pattern;
     let urls: Record<string, string> | undefined;
     if (urlPattern) {
+      const localeSlugByLocale: Record<string, string> = {};
+      for (const l of locales) {
+        for (const ext of ["yml", "yaml"]) {
+          const localeFile = path.join(pageDir, `${l}.${ext}`);
+          if (!fs.existsSync(localeFile)) continue;
+          try {
+            const parsed = safeLoad(fs.readFileSync(localeFile, "utf-8"));
+            const candidate = parsed?.slug;
+            if (typeof candidate === "string" && candidate.trim()) {
+              localeSlugByLocale[l] = candidate.trim();
+            }
+          } catch {
+            // Keep folder slug fallback for malformed locale files.
+          }
+          break;
+        }
+      }
       const resolvedUrls: Record<string, string> = {};
       if (urlPattern["default"]) {
-        const p = urlPattern["default"].replace(":slug", slug);
-        for (const l of locales) resolvedUrls[l] = p;
+        for (const l of locales) {
+          const localeSlug = localeSlugByLocale[l] || slug;
+          resolvedUrls[l] = urlPattern["default"].replace(":slug", localeSlug);
+        }
       } else {
         for (const l of locales) {
-          if (urlPattern[l]) resolvedUrls[l] = urlPattern[l].replace(":slug", slug);
+          if (!urlPattern[l]) continue;
+          const localeSlug = localeSlugByLocale[l] || slug;
+          resolvedUrls[l] = urlPattern[l].replace(":slug", localeSlug);
         }
       }
       if (Object.keys(resolvedUrls).length > 0) urls = resolvedUrls;
@@ -679,7 +835,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "validation_issues (all cached validation issues for this page across all categories — each with code, message, severity, and category). " +
     "validation_issues is always present (empty array if no issues are cached). " +
     "Merges _common.yml with the locale file. contentType is optional — omit it and the server will auto-detect it from the slug. " +
-    "Use get_entry_seo to fetch only the SEO/meta fields. " +
+    "Use get_entry_seo to fetch only the SEO/meta fields. Requires content_view. " +
     "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file.",
     {
       slug: z.string().describe("Page slug (folder name), e.g. 'home' or 'full-stack-developer'"),
@@ -706,6 +862,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (!resolved) {
           return { content: [{ type: "text", text: `Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}` }], isError: true };
         }
+        const viewDenied = await denyUnlessContentView(mcpToken, resolved.contentType, grants);
+        if (viewDenied) return viewDenied;
         const result = loadVariantPage(resolved.contentType, slug, locale, variant, contentPath);
         if (!result) {
           return { content: [{ type: "text", text: `Variant '${variant}' not found for page '${slug}' locale '${locale}' (file: ${variant}.${locale}.yml)` }], isError: true };
@@ -718,6 +876,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
 
       const payload = resolvePagePayload(slug, locale, contentType, contentPath);
       if ("isError" in payload) return payload;
+      const viewDeniedLive = await denyUnlessContentView(mcpToken, payload.contentType, grants);
+      if (viewDeniedLive) return viewDeniedLive;
 
       const { meta: _meta, ...dataWithoutMeta } = payload.data;
       const merged = { ...dataWithoutMeta } as Record<string, unknown>;
@@ -736,12 +896,14 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   mcp.tool(
     "get_entry_seo",
     "Get the SEO/meta block plus structured-data preview for a page, with the identifying envelope (contentType, slug, locale, locales, urls). " +
-    "Returns meta, seo (locale seo.main_keyword / pillar_path / is_pillar), index (live seo-index.json row; omitted for variants), " +
-    "validation_issues (cached SEO-category issues from meta / seo-depth / seo-intent), and a rich schema_org block: " +
+    "Returns meta, seo (locale seo.main_keyword / pillar_path / is_pillar), include_in_clustering (derived: false only when seo.pillar_path is explicit null), " +
+    "index (live seo-index.json row; omitted for variants), " +
+    "validation_issues (cached SEO-category issues from meta / seo-depth / seo-intent / seo-cluster), and a rich schema_org block: " +
     "resolved JSON-LD documents + sources (same pipeline as SSR section contributors + Organization dual-emit), " +
     "content-type requirements / hero companion gaps. " +
     "Use this to inspect what Google gets — not for editing schema_org YAML (use get_entry_content / section tools). " +
-    "Do not expect a derived JSON-LD dump on get_entry_content. " +
+    "Toggle clustering via update_fields seo.include_in_clustering (MCP-only; requires type seo_monitoring.enabled). " +
+    "Do not expect a derived JSON-LD dump on get_entry_content. Requires content_view or seo_edit. " +
     "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file.",
     {
       slug: z.string().describe("Page slug (folder name), e.g. 'home' or 'full-stack-developer'"),
@@ -817,6 +979,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         if (!resolved) {
           return { content: [{ type: "text", text: `Page not found for slug '${slug}'${contentType ? ` (contentType: ${contentType})` : ""}` }], isError: true };
         }
+        const seoDenied = await denyUnlessContentViewOrSeo(mcpToken, resolved.contentType, grants);
+        if (seoDenied) return seoDenied;
         const result = loadVariantPage(resolved.contentType, slug, locale, variant, contentPath);
         if (!result) {
           return { content: [{ type: "text", text: `Variant '${variant}' not found for page '${slug}' locale '${locale}' (file: ${variant}.${locale}.yml)` }], isError: true };
@@ -839,13 +1003,25 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
                   variant,
                   meta: result.data.meta,
                   seo: result.data.seo || {},
+                  include_in_clustering: deriveIncludeInClustering(result.data.seo),
                   index: null,
                   schema_org,
                   validation_issues: [],
+                  ...resolvedUpdatedAtFields(
+                    resolved.contentType,
+                    slug,
+                    locale,
+                    contentPath,
+                    result.data as Record<string, unknown>,
+                  ),
                   warnings: [
                     {
                       code: "variant_seo_not_indexed",
                       message: "Variant seo: is not in seo-index.json until promote.",
+                    },
+                    {
+                      code: "variant_updated_at_not_live",
+                      message: "Variant updated_at does not change live sitemap lastmod until promote.",
                     },
                   ],
                 },
@@ -859,6 +1035,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
 
       const payload = resolvePagePayload(slug, locale, contentType, contentPath);
       if ("isError" in payload) return payload;
+      const seoDeniedLive = await denyUnlessContentViewOrSeo(mcpToken, payload.contentType, grants);
+      if (seoDeniedLive) return seoDeniedLive;
 
       // Inject cached SEO-only validation issues for this page's URL
       const pageUrl = payload.urls?.[locale];
@@ -879,9 +1057,17 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         ...(payload.urls ? { urls: payload.urls } : {}),
         meta: payload.data.meta,
         seo: payload.data.seo || {},
+        include_in_clustering: deriveIncludeInClustering(payload.data.seo),
         index: getSeoIndexEntry(payload.contentType, payload.slug, payload.locale, contentPath) || null,
         schema_org,
         validation_issues,
+        ...resolvedUpdatedAtFields(
+          payload.contentType,
+          payload.slug,
+          payload.locale,
+          contentPath,
+          payload.data,
+        ),
       };
 
       return { content: [{ type: "text", text: JSON.stringify(seoPayload, null, 2) }] };
@@ -1012,6 +1198,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
                 reason: "After jobs finish, hard-refresh SEO diagnostics to confirm MISSING_OG_IMAGE cleared",
                 args_hint: {
                   freshness: "hard",
+                  confirm: true,
                   ...(slugs && slugs.length ? { slugs } : {}),
                   categories: ["seo"],
                   ...(site ? { site } : {}),
@@ -1031,7 +1218,9 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
   mcp.tool(
     "run_entry_diagnostics",
     "Start or read page diagnostics against the unified validation-cache issue store. Does NOT wait for validators to finish. " +
-    "Returns status 'cached' (issues from validation-cache when fresh) or 'queued'/'running' with job_id. " +
+    "Returns status 'cached' (issues from validation-cache when fresh), 'needs_confirm' (re-call with confirm:true), or 'queued'/'running' with job_id. " +
+    "When a NEW job would start (freshness hard, or stale under max_age), confirm:true is required — agents may set the flag after reading the gate (last full site-wide duration). " +
+    "Same-scope reuse of an in-flight job and pure 'cached' responses skip confirm. " +
     "When queued/running: wait retry_after_seconds then call get_diagnostics_job — do NOT re-call this tool to poll. " +
     "freshness 'max_age' (default) recomputes only URLs whose lastFullRunAt is older than max_age_seconds (default 86400); " +
     "'hard' forces a recompute. Optional slugs scopes the run to entry-local validators only (never cross-entry like redirects — avoids false all-clear). " +
@@ -1039,33 +1228,48 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "(parent reloads cache when the job completes; clears obsolete codes for ran validators in scope). " +
     "Concurrent start while another job holds the site returns busy (no queue). On-save entry-local writes are deferred while the lock is held. " +
     "non_effects: entry/slug runs do not refresh redirects/slug-conflicts/sitemap; fixing meta does not clear REDIRECT_CONFLICT; " +
-    "Cached issues in memory refresh only after job completion. " +
-    "Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + slugs. " +
-    "In-app content saves also debounce entry-local validation; redirect-config changes queue redirects separately.",
+    "Mid-run get_diagnostics_job may return partial issuesBySlug (URLs flushed since job started only). Authoritative after completed. " +
+    "Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + slugs + confirm:true. " +
+    "In-app content saves also debounce entry-local validation; redirect-config changes queue redirects separately. " +
+    "Requires a mutating staff cap (not metrics_view/content_view only).",
     {
       slugs: z.array(z.string()).optional().describe("Optional page slugs to scope. Omit for all YAML-backed pages."),
       categories: z.array(z.string()).optional().describe("Filter returned issues to categories (e.g. ['seo']). Does not narrow the job."),
       freshness: z.enum(["hard", "max_age"]).optional().describe("max_age (default) uses lastFullRunAt; hard always recomputes."),
       max_age_seconds: z.number().optional().describe("TTL for max_age freshness (default 86400). Ignored when freshness is hard."),
+      confirm: z.boolean().optional().describe("Set true to start a new diagnostics job after needs_confirm. Not required for cached or same-scope reuse."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slugs, categories, freshness, max_age_seconds, site }) => {
+    async ({ slugs, categories, freshness, max_age_seconds, confirm, site }) => {
+      if (mcpToken && grants && !grantsCanMutateMetrics(grants)) {
+        return denyResponse("metrics_mutate");
+      }
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
       const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+      const requestBody = {
+        slugs: slugs && slugs.length > 0 ? slugs : undefined,
+        categories,
+        freshness: freshness ?? "max_age",
+        max_age_seconds: max_age_seconds ?? 86400,
+        ...(confirm === true ? { confirm: true } : {}),
+      };
+      const retryArgsHint = {
+        ...(slugs && slugs.length ? { slugs } : {}),
+        ...(categories ? { categories } : {}),
+        freshness: freshness ?? "max_age",
+        ...(max_age_seconds != null ? { max_age_seconds } : {}),
+        confirm: true,
+        ...(site ? { site } : {}),
+      };
       try {
         const res = await fetch(
           `http://localhost:${MAIN_SERVER_PORT}/api/validation/diagnostics-jobs${q}`,
           {
             method: "POST",
             headers: internalHeaders(),
-            body: JSON.stringify({
-              slugs: slugs && slugs.length > 0 ? slugs : undefined,
-              categories,
-              freshness: freshness ?? "max_age",
-              max_age_seconds: max_age_seconds ?? 86400,
-            }),
+            body: JSON.stringify(requestBody),
           },
         );
         const data = await res.json() as Record<string, unknown>;
@@ -1100,6 +1304,29 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
 
         if (!res.ok) {
           return fail(String(data.message ?? data.error ?? `diagnostics-jobs failed (${res.status})`), data);
+        }
+
+        if (data.status === "needs_confirm") {
+          return actionRequired(
+            {
+              success: false,
+              action_required: "confirm_run_diagnostics",
+              code: "confirm_run_diagnostics",
+              message: String(data.message ?? "Set confirm: true to start diagnostics."),
+              scoped: data.scoped === true,
+              last_site_wide_run_at: data.last_site_wide_run_at ?? null,
+              last_site_wide_run_ago: data.last_site_wide_run_ago ?? "never",
+              last_site_wide_duration_ms: data.last_site_wide_duration_ms ?? null,
+              last_site_wide_duration_human: data.last_site_wide_duration_human ?? null,
+              last_site_wide_url_count: data.last_site_wide_url_count ?? null,
+            },
+            [{
+              tool: "run_entry_diagnostics",
+              reason: "Retry with confirm: true after reviewing last full site-wide duration",
+              args_hint: retryArgsHint,
+              priority: "required",
+            }],
+          );
         }
 
         if (data.status === "cached") {
@@ -1164,13 +1391,17 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "get_diagnostics_job",
     "Poll an async diagnostics job started by run_entry_diagnostics. " +
     "If status is queued/running: wait retry_after_seconds then call this tool again with the same job_id. " +
+    "While running, issuesBySlug may include partial results (only URLs whose lastFullRunAt is >= job startedAt). " +
     "Do not call run_entry_diagnostics to poll. Terminal: completed (issuesBySlug + cache_updated after worker finishes), failed, or not_found " +
-    "(diagnostics_job_lost — start a new run_entry_diagnostics). Disk validation-cache is authoritative after completed.",
+    "Disk validation-cache is authoritative after completed. Requires a mutating staff cap (not metrics_view/content_view only).",
     {
       job_id: z.string().describe("Job id from run_entry_diagnostics"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ job_id, site }) => {
+      if (mcpToken && grants && !grantsCanMutateMetrics(grants)) {
+        return denyResponse("metrics_mutate");
+      }
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
@@ -1198,7 +1429,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
               next_actions: [{
                 tool: "run_entry_diagnostics",
                 reason: "Start a new diagnostics job",
-                args_hint: { freshness: "hard", ...(site ? { site } : {}) },
+                args_hint: { freshness: "hard", confirm: true, ...(site ? { site } : {}) },
                 priority: "recommended",
               }],
             },
@@ -1212,6 +1443,10 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         const status = String(data.status ?? "");
         if (status === "queued" || status === "running") {
           const retry = Number(data.retry_after_seconds ?? 5);
+          const issuesBySlug = data.issuesBySlug ?? {};
+          const hasPartial =
+            data.partial === true ||
+            (issuesBySlug && typeof issuesBySlug === "object" && Object.keys(issuesBySlug as object).length > 0);
           return ok(
             {
               status,
@@ -1220,12 +1455,24 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
               total: data.total,
               retry_after_seconds: retry,
               scope: data.scope,
+              issuesBySlug,
+              partial: data.partial === true,
+              message: data.message,
             },
             {
-              warnings: [{
-                code: "diagnostics_async",
-                message: "Job still running. Wait retry_after_seconds then call get_diagnostics_job again.",
-              }],
+              warnings: [
+                {
+                  code: "diagnostics_async",
+                  message: "Job still running. Wait retry_after_seconds then call get_diagnostics_job again.",
+                },
+                ...(hasPartial
+                  ? [{
+                      code: "partial_results_job_still_running",
+                      message:
+                        "issuesBySlug only includes URLs flushed since this job started. Unvisited URLs are omitted until completed.",
+                    }]
+                  : []),
+              ],
               next_actions: [{
                 tool: "get_diagnostics_job",
                 reason: "Continue polling",
@@ -1249,7 +1496,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
               next_actions: [{
                 tool: "run_entry_diagnostics",
                 reason: "Start a new diagnostics job after failure",
-                args_hint: { freshness: "hard", ...(site ? { site } : {}) },
+                args_hint: { freshness: "hard", confirm: true, ...(site ? { site } : {}) },
                 priority: "optional",
               }],
             },
@@ -1308,18 +1555,25 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "The only single-entry field write tool. Apply one or more field updates to one page/locale. " +
     "updates length 1 = single-field edit. May mix meta.*, safe top-level body fields, and fields under ONE sections.N.* index. " +
     "Rejects two or more distinct section indexes (split into separate calls so bindings can propagate). " +
-    "field_path routing: sections.* and safe top-level → locale; seo.main_keyword|seo.pillar_path|seo.is_pillar → locale seo: (never _common.yml, no meta_target); meta.robots/priority/change_frequency → _common.yml; " +
+    "sections.N.* patches an existing slot only — missing index fails (reload, or edit single.{locale}.yml with layout_target type_single). Does not create overlay patches or grow sections[]. " +
+    "field_path routing: sections.* and safe top-level → locale; seo.main_keyword|seo.pillar_path|seo.is_pillar → locale seo: (never _common.yml, no meta_target); " +
+    "seo.include_in_clustering (MCP-only boolean, never YAML) expands to pillar_path/is_pillar — requires content-type seo_monitoring.enabled; " +
+    "on=true needs non-empty seo.pillar_path or seo.is_pillar:true after merge; on=false → pillar_path:null + is_pillar:false; " +
+    "raw seo.pillar_path:null still opts out (warns). meta.robots/priority/change_frequency → _common.yml; " +
     "other known meta.* → locale; unknown meta.* requires meta_target locale|common.\n\n" +
     "Live gate: live writes need meta.page_title + meta.description; editor.required cannot be cleared on live. Drafts exempt.\n" +
     "CIRCULAR TRAP: if both meta.description and body description are empty, set BOTH in this one updates[] call.\n\n" +
-    "For identical meta across many slugs use update_meta_fields instead. Not for section topology (add/remove/reorder).\n\n" +
+    "For identical meta across many slugs use update_meta_fields instead. Not for section topology (add/remove/reorder).\n" +
+    "updated_at: title / meta.page_title / meta.description / section copy or images stamp now on the layer file; seo.* / robots / redirects / og_image do not; variants do not move live lastmod until promote.\n\n" +
     MULTI_SITE_TOOL_BLURB + "\n\n" +
     "IMPORTANT — versioning: ask before live edit when versioning.yml exists; pass confirm_live_edit: true or variant.",
     {
       slug: z.string().describe("Page slug"),
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
       updates: z.array(z.object({
-        field_path: z.string().describe("Dot path: sections.0.title, meta.description, seo.main_keyword, title, …"),
+        field_path: z.string().describe(
+          "Dot path: sections.0.title, meta.description, seo.main_keyword, seo.include_in_clustering, title, …",
+        ),
         value: z.unknown().describe("New value"),
         meta_target: z.enum(["locale", "common"]).optional().describe(
           "Required for unknown meta.* keys. Known meta auto-routes.",
@@ -1332,7 +1586,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       confirm_layout_target: confirmLayoutTargetSchema,
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slug, locale, updates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
+    async ({ slug, locale, updates: inputUpdates, contentType, variant, confirm_live_edit, layout_target, confirm_layout_target, site }) => {
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { contentPath, contentFolder, domain } = siteResult;
@@ -1344,6 +1598,9 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       } catch (e) {
         return fail((e as Error).message);
       }
+
+      let updates = inputUpdates;
+      const clusterToggleWarnings: McpWarning[] = [];
 
       const pathCounts = new Map<string, number>();
       for (const u of updates) {
@@ -1394,12 +1651,15 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       }
 
       const safeTop = safeTopLevelFieldsForConfig(resolved.config);
-      const isSeoPath = (p: string) => isKnownSeoFieldPath(p) || p === `${SEO_YAML_KEY}.pillar`;
+      const isSeoPath = (p: string) =>
+        isKnownSeoFieldPath(p) ||
+        p === `${SEO_YAML_KEY}.pillar` ||
+        isSeoIncludeInClusteringPath(p);
       for (const u of updates) {
         const p = u.field_path;
         if (p.startsWith("sections.") || p.startsWith("meta.") || isSeoPath(p) || safeTop.has(p)) continue;
         return fail(
-          `Disallowed field_path '${p}'. Must start with 'sections.', 'meta.', 'seo.main_keyword|seo.pillar_path|seo.is_pillar', or be one of: ${[...safeTop].join(", ")}.`,
+          `Disallowed field_path '${p}'. Must start with 'sections.', 'meta.', 'seo.main_keyword|seo.pillar_path|seo.is_pillar|seo.include_in_clustering', or be one of: ${[...safeTop].join(", ")}.`,
         );
       }
       for (const u of updates) {
@@ -1415,12 +1675,18 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
 
       const needsSeo = updates.some((u) => u.field_path.startsWith("meta.") || isSeoPath(u.field_path));
       const needsContent = updates.some((u) => !u.field_path.startsWith("meta.") && !isSeoPath(u.field_path));
+      const liveSlugUpdate = !variant
+        ? updates.find((u) => u.field_path === "slug" && typeof u.value === "string")
+        : undefined;
       if (mcpToken) {
         if (needsSeo && !(await checkCap(mcpToken, "seo_edit"))) {
           return denyResponse("seo_edit");
         }
         if (needsContent && !(await checkCap(mcpToken, "content_edit_text", resolved.contentType))) {
           return denyResponse("content_edit_text", resolved.contentType);
+        }
+        if (liveSlugUpdate && !(await checkCap(mcpToken, "content_edit_structure", resolved.contentType))) {
+          return denyResponse("content_edit_structure", resolved.contentType);
         }
       }
 
@@ -1432,7 +1698,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         contentPath,
         variant,
         confirm_live_edit,
-        extraArgsHint: { updates, layout_target, confirm_layout_target },
+        extraArgsHint: { updates: inputUpdates, layout_target, confirm_layout_target },
       });
       if (liveGate) return liveGate;
 
@@ -1466,6 +1732,74 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const currentDoc = fs.existsSync(pathInfo.filePath)
         ? safeLoad(fs.readFileSync(pathInfo.filePath, "utf-8")) || {}
         : {};
+      const currentSeo =
+        currentDoc.seo && typeof currentDoc.seo === "object" && !Array.isArray(currentDoc.seo)
+          ? (currentDoc.seo as SeoBlock)
+          : {};
+
+      const expanded = expandSeoClusterToggle({
+        contentType: resolved.contentType,
+        contentRoot: contentPath,
+        updates,
+        currentSeo,
+        slug,
+        locale,
+        site,
+        variant,
+      });
+      if (!expanded.ok) {
+        if (expanded.kind === "action_required") {
+          return actionRequired(
+            {
+              success: false,
+              action_required: expanded.action_required,
+              code: expanded.code,
+              message: expanded.message,
+              ...(expanded.details ?? {}),
+            },
+            expanded.next_actions,
+          );
+        }
+        return fail(expanded.message, { code: expanded.code, ...(expanded.details ?? {}) });
+      }
+      updates = expanded.updates;
+      clusterToggleWarnings.push(...expanded.warnings);
+
+      if (updates.length === 0) {
+        return ok(
+          {
+            message:
+              `No disk write: ${SEO_INCLUDE_IN_CLUSTERING} on with existing cluster membership ` +
+              `(${resolved.contentType}/${slug}). Virtual field is never persisted.`,
+            include_in_clustering: true,
+          },
+          {
+            warnings: [
+              ...clusterToggleWarnings,
+              {
+                code: "seo_include_in_clustering_noop",
+                message:
+                  "seo.include_in_clustering is MCP-only (not written to YAML). Membership already satisfied; no seo.* change.",
+              },
+            ],
+            next_actions: [
+              {
+                tool: "get_entry_seo",
+                priority: "optional",
+                reason: "Confirm include_in_clustering and locale seo:.",
+                args_hint: {
+                  slug,
+                  locale,
+                  contentType: resolved.contentType,
+                  ...(variant ? { variant } : {}),
+                  ...(site ? { site } : {}),
+                },
+              },
+            ],
+          },
+        );
+      }
+
       const catalogGate = formSourceWriteGate(
         collectFormSourceHitsFromUpdates(updates, currentDoc),
         {
@@ -1477,7 +1811,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             slug,
             locale,
             contentType: resolved.contentType,
-            updates,
+            updates: inputUpdates,
             confirm_live_edit,
             variant,
             layout_target,
@@ -1492,7 +1826,13 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
 
       const localeEntries: Array<[string, unknown]> = [];
       const commonEntries: Array<[string, unknown]> = [];
+      const slugRenameValue = !variant
+        ? updates.find((u) => u.field_path === "slug" && typeof u.value === "string")?.value as string | undefined
+        : undefined;
       for (const { field_path, value, meta_target } of updates) {
+        if (field_path === "slug" && slugRenameValue !== undefined) {
+          continue;
+        }
         if (field_path.startsWith("meta.")) {
           const metaKey = field_path.slice(5).split(".")[0];
           const toCommon = META_COMMON_FIELDS.has(metaKey) ||
@@ -1535,7 +1875,18 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
 
       const results: string[] = [];
       let boundUpdates: unknown;
-      const warnings: McpWarning[] = [...variantWarningsIfNeeded(variant)];
+      const warnings: McpWarning[] = [
+        ...variantWarningsIfNeeded(variant),
+        ...clusterToggleWarnings,
+      ];
+      let renameResult: Record<string, unknown> | null = null;
+      if (touchesSections) {
+        warnings.push({
+          code: "section_index_no_create",
+          message:
+            "sections.N.* patches an existing slot only (this file or single.{locale}.yml). Missing index fails — reload get_entry_fields or use layout_target type_single. Does not create overlay patches. Merge: server/section-merge.ts.",
+        });
+      }
       if (variant && commonEntries.length > 0) {
         warnings.push({
           code: "common_meta_ignores_variant",
@@ -1594,8 +1945,59 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         results.push(`${commonEntries.length} field(s) → _common.yml`);
       }
 
+      if (slugRenameValue !== undefined) {
+        const renamed = await callRenameSlugApi(
+          {
+            contentType: resolved.contentType,
+            folderSlug: slug,
+            locale,
+            newSlug: slugRenameValue,
+            createRedirect: false,
+          },
+          mcpToken,
+          domain,
+        );
+        if (!renamed.ok) {
+          if (results.length > 0) {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "retry_slug_rename",
+                message:
+                  "Some fields were written but live slug rename failed. " +
+                  "Retry update_fields with only field_path 'slug'.",
+                wrote: results,
+                slug_error: renamed.error,
+              },
+              [{
+                tool: "update_fields",
+                priority: "required",
+                reason: "Retry slug rename only on the live locale.",
+                args_hint: {
+                  slug,
+                  locale,
+                  contentType: resolved.contentType,
+                  confirm_live_edit: true,
+                  updates: [{ field_path: "slug", value: slugRenameValue }],
+                },
+              }],
+            );
+          }
+          return renamed.error;
+        }
+        renameResult = renamed.data;
+        results.push(`slug rename → ${String(renamed.data.newSlug || slugRenameValue)}`);
+      }
+
       const side_effects: McpSideEffect[] = [...(bindingPropagateSideEffects(boundUpdates) || [])];
       const next_actions: NextAction[] = [];
+      warnings.push(UPDATED_AT_STAMP_WARNING);
+      if (localeEntries.length > 0) {
+        side_effects.push({
+          kind: "locale_yaml",
+          summary: `Wrote ${pathInfo.relativeHint}; whitelist content changes stamp updated_at on that layer.`,
+        });
+      }
       const seoWrote = updates.some((u) => isSeoPath(u.field_path));
       if (seoWrote) {
         side_effects.push({
@@ -1626,10 +2028,50 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           args_hint: { slug, locale, contentType: resolved.contentType, ...(variant ? { variant } : {}) },
         });
       }
+      if (slugRenameValue !== undefined) {
+        warnings.push({
+          code: "slug_rename_non_effects",
+          message:
+            "Slug rename updates locale URL routing only. It does not rename the entry folder and does not create a 301 redirect.",
+        });
+        warnings.push({
+          code: "slug_rename_redirect_hint",
+          message: "Use update_redirect if you need the previous URL to 301 to the new URL.",
+        });
+        side_effects.push({
+          kind: "locale_yaml",
+          summary: `Renamed live slug in ${pathInfo.relativeHint}.`,
+        });
+      }
+
+      if (renameResult && renameResult.routed === false) {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "refresh_content_index",
+            message:
+              "Slug was written but the new URL is not routable yet. Refresh the content index and verify routing.",
+            ...(renameResult.oldUrl ? { old_url: renameResult.oldUrl } : {}),
+            ...(renameResult.newUrl ? { new_url: renameResult.newUrl } : {}),
+            locale,
+            routed: false,
+          },
+          [{
+            tool: "refresh_content_index",
+            priority: "required",
+            reason: "Rebuild URL routing after slug rename.",
+            args_hint: { contentType: resolved.contentType, ...(site ? { site } : {}) },
+          }],
+        );
+      }
 
       return ok(
         {
           message: `Applied ${updates.length} update(s) to ${resolved.contentType}/${slug}: ${results.join("; ")}`,
+          ...(renameResult?.oldUrl ? { old_url: renameResult.oldUrl } : {}),
+          ...(renameResult?.newUrl ? { new_url: renameResult.newUrl } : {}),
+          ...(renameResult?.locale ? { locale: renameResult.locale } : {}),
+          ...(renameResult?.routed !== undefined ? { routed: renameResult.routed } : {}),
           ...(Array.isArray(boundUpdates) && boundUpdates.length > 0 ? { bound_updates: boundUpdates } : {}),
           ...wrotePayload({
             layer: pathInfo.layer,
@@ -1735,6 +2177,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             code: "bulk_meta_no_preview_capture",
             message: "Entry preview capture was skipped for this meta-only bulk update.",
           },
+          UPDATED_AT_STAMP_WARNING,
         ];
         for (const w of (data.warnings as string[]) || []) {
           if (w.includes("common_meta_ignores_variant")) {
@@ -1979,7 +2422,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "(original | db_override | ct_override | entry_default). " +
     "Static types: values come from root keys on the layer file (entry_default); leftover field_overrides bags are still applied until migrated. " +
     "DB types: ct_override = field_overrides bag; db_override = overrides.json. " +
-    "Optional variant reads {variant}.{locale}.yml. Use before update_entry_field / reset_entry_field.",
+    "Includes MCP-only seo.include_in_clustering (boolean; never YAML) when the type has seo fields — writable only if seo_monitoring.enabled. " +
+    "Optional variant reads {variant}.{locale}.yml. Use before update_entry_field / reset_entry_field. Requires content_view.",
     {
       slug: z.string(),
       contentType: z.string().optional(),
@@ -2003,6 +2447,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       if (!resolved) {
         return fail(`Page not found for slug '${slug}'`);
       }
+      const fieldsDenied = await denyUnlessContentView(mcpToken, resolved.contentType, grants);
+      if (fieldsDenied) return fieldsDenied;
       const q = new URLSearchParams({ locale });
       if (domain) q.set("__site", domain);
       if (variant) q.set("variant", variant);
@@ -2018,6 +2464,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           [key: string]: unknown;
         };
         let fieldsOut = payload.fields;
+        const typeMonitored = isSeoMonitoringEnabled(resolved.contentType, siteResult.contentPath);
         try {
           const configs = loadContentTypes(siteResult.contentPath);
           const cfg = configs[resolved.contentType];
@@ -2026,23 +2473,15 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             fieldsOut = fieldsOut.map((f) => {
               const name = typeof f.field === "string" ? f.field : typeof f.name === "string" ? f.name : null;
               if (!name) return f;
-              if (name === "cluster_keyword" || name === "cluster_url") {
-                return {
-                  ...f,
-                  system_hints: [
-                    "Blog holding column until hubs are resolved — not the cluster hub.",
-                    "Hub fields are seo.main_keyword / seo.is_pillar / seo.pillar_path (update_fields, locale YAML).",
-                    "Do not copy cluster_keyword onto seo.main_keyword. Do not invent pillar_path.",
-                  ],
-                };
-              }
               if (typeof name === "string" && name.startsWith("seo.")) {
                 return {
                   ...f,
                   system_hints: [
-                    "Locale YAML seo: only — never _common.yml, never field_mapping / writeMappedFields.",
+                    "Prefer seo.include_in_clustering (MCP-only boolean) to turn cluster monitoring on/off for this entry.",
+                    "Off expands to seo.pillar_path: null + seo.is_pillar: false. On requires non-empty seo.pillar_path or seo.is_pillar: true after merge.",
+                    "Locale YAML seo: for writes (writeSeoFields). Optional field_mapping seo_main_keyword|seo_pillar_path|seo_is_pillar = DB read baseline; YAML overlay wins. Reset removes YAML key only. Never dotted seo.* in field_mapping; never _common.yml; never writeMappedFields for seo.*.",
                     "Live write patches seo-index.json after disk with the same author. Variants are not indexed.",
-                    "seo.is_pillar auto-fills this page's canonical path. Do not invent pillar_path.",
+                    "seo.is_pillar auto-fills this page's canonical path. Do not invent pillar_path. Empty pillar_path is a cluster gap; null is opt-out.",
                   ],
                 };
               }
@@ -2062,6 +2501,45 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
               if (!system_hints) return f;
               return { ...f, system_hints };
             });
+
+            const localeSeo = (() => {
+              if (variant) {
+                const v = loadVariantPage(
+                  resolved.contentType,
+                  slug,
+                  locale,
+                  variant,
+                  siteResult.contentPath,
+                );
+                return v?.data?.seo;
+              }
+              const live = loadPage(resolved.contentType, slug, locale, siteResult.contentPath);
+              return live?.data?.seo;
+            })();
+            const includeInClustering = deriveIncludeInClustering(localeSeo);
+
+            const hasSeoRow = fieldsOut.some((f) => {
+              const n = typeof f.field === "string" ? f.field : typeof f.name === "string" ? f.name : "";
+              return n.startsWith("seo.");
+            });
+            if (hasSeoRow || typeMonitored) {
+              fieldsOut = [
+                {
+                  field: SEO_INCLUDE_IN_CLUSTERING,
+                  effective: includeInClustering,
+                  writable: typeMonitored,
+                  source: "system",
+                  system_hints: [
+                    "MCP-only virtual boolean (mirrors staff Include in SEO clustering). Never written to YAML.",
+                    typeMonitored
+                      ? "Writable via update_fields. false → pillar_path:null + is_pillar:false. true requires pillar_path or is_pillar after merge."
+                      : "Not writable: content type seo_monitoring.enabled is off. Raw seo.* fields still allowed.",
+                    "Does not change content-types.yml seo_monitoring; does not create a YAML key.",
+                  ],
+                },
+                ...fieldsOut,
+              ];
+            }
           }
           const relation_fields = Object.entries(ed || {})
             .filter(([, h]) => h && (h as { type?: string }).type === "relation")
@@ -2075,6 +2553,12 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
               ...payload,
               fields: fieldsOut ?? payload.fields,
               relation_fields,
+              ...resolvedUpdatedAtFields(
+                resolved.contentType,
+                slug,
+                locale,
+                siteResult.contentPath,
+              ),
             },
             { warnings: [], next_actions: [] },
           );
@@ -2083,6 +2567,12 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             {
               message: `Fields for ${resolved.contentType}/${slug} (${locale}${variant ? `, variant=${variant}` : ""})`,
               ...(data as Record<string, unknown>),
+              ...resolvedUpdatedAtFields(
+                resolved.contentType,
+                slug,
+                locale,
+                siteResult.contentPath,
+              ),
             },
             { warnings: [], next_actions: [] },
           );
@@ -2213,13 +2703,15 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "List extra versions (drafts/A-B variants) for a page: slug, traffic allocation, locale. " +
     "Live-only pages have no versioning.yml: hasVersioning is false, variants is [], live_locales lists published locales — that is not unpublished. " +
     "versioning.yml is created by create_variant, not by hand; extra versions start at 0% traffic. " +
-    "Use before create_variant or editing an existing draft.",
+    "Use before create_variant or editing an existing draft. Requires content_view.",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
       slug: z.string().describe("Page slug"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ contentType, slug, site }) => {
+      const viewDenied = await denyUnlessContentView(mcpToken, contentType, grants);
+      if (viewDenied) return viewDenied;
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain, contentPath } = siteResult;
@@ -2993,6 +3485,14 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           sections: localeContent.sections,
           ...(localeContent.meta && Object.keys(localeContent.meta).length > 0 ? { meta: localeContent.meta } : {}),
         };
+        applyEditorialUpdatedAtToData({
+          data: localeData,
+          previous: {},
+          operations: operationsFromLocalePayload(localeData),
+          contentType,
+          slug,
+          contentRoot: contentPath,
+        });
         const fileName = draftFirst ? `${draftVariant}.${loc}.yml` : `${loc}.yml`;
         fs.writeFileSync(path.join(pageDir, fileName), safeDump(localeData), "utf-8");
         createdLocales.push(loc);
@@ -3012,10 +3512,11 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       const commitMsg = draftFirst
         ? `Create draft entry ${contentType}/${slug}`
         : `Create entry ${contentType}/${slug}`;
-      const [commitResult] = await Promise.all([
-        callCommitFilesApi(relPaths, commitMsg, mcpToken, domain),
-        callRefreshCacheApi(contentType, domain),
-      ]);
+      const commitResult = await callCommitFilesApi(relPaths, commitMsg, mcpToken, domain);
+      let refreshResult = await callRefreshCacheApi(contentType, domain);
+      if (!refreshResult.ok) {
+        refreshResult = await callRefreshCacheApi(contentType, domain);
+      }
 
       const warnings: McpWarning[] = [];
       const ghWarning = githubCommitWarning(commitResult);
@@ -3077,13 +3578,27 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           tool: "run_entry_diagnostics",
           priority: "recommended",
           reason: "Hard-refresh diagnostics for the new live entry (async — then poll get_diagnostics_job)",
-          args_hint: { slugs: [slug], freshness: "hard", ...siteHint },
+          args_hint: { slugs: [slug], freshness: "hard", confirm: true, ...siteHint },
         });
       } else {
         warnings.push({
           code: "published_at_stamped",
           message:
             "Live create stamps published_at=now on _common.yml when the type is not draft-first.",
+        });
+      }
+      if (!refreshResult.ok) {
+        warnings.push({
+          code: "index_refresh_failed",
+          message:
+            `Entry files were written, but URL routing refresh failed: ${refreshResult.error || "unknown error"}. ` +
+            "Run refresh_content_index before validating the public URL.",
+        });
+        next_actions.push({
+          tool: "refresh_content_index",
+          priority: "required",
+          reason: "Rebuild content index after create_entry.",
+          args_hint: { contentType, ...siteHint },
         });
       }
 
@@ -3104,6 +3619,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           ...(commitResult.commitSha
             ? { commitSha: commitResult.commitSha, commitShas: [commitResult.commitSha] }
             : {}),
+          ...(refreshResult.knownUrlCount !== undefined ? { known_url_count: refreshResult.knownUrlCount } : {}),
         },
         { warnings, next_actions, ...(side_effects.length > 0 ? { side_effects } : {}) },
       );
@@ -3119,6 +3635,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Reading time (on-page and OG) combines all article bodies and shows on the first only; mobile/top TOC only on the first; desktop side TOC may still appear on later parts. " +
     "toc_group is optional/legacy — not a decision knob. Response may include article_split_always_share / article_lead_* warnings. " +
     "See get_component_variant → article_split_toc_group or explain_site topic 'sections'.\n\n" +
+    "IMPORTANT — modal sections: type: modal must have section_id so CTAs can open it with url: \"#that-id\". " +
+    "Response may include modal_missing_section_id. See explain_site topic 'sections'.\n\n" +
     "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
     "you MUST ask the user before calling this tool: " +
     "'Do you want to edit the live version directly, or create a new draft variant first?' " +
@@ -3331,6 +3849,16 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         ...next_actions,
         ...articleHints.next_actions.filter((a) => a.tool !== "update_fields"),
       ];
+
+      const modalHints = hintsAfterAddModal({
+        newSection: sectionToAdd,
+        insertIndex: index,
+        existingSectionCount: existingSections.length,
+        slug,
+        locale,
+      });
+      warnings.push(...modalHints.warnings);
+      next_actions = [...next_actions, ...modalHints.next_actions];
 
       return ok(
         {
@@ -3670,6 +4198,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "cache refresh, and Git mark-modified.\n\n" +
     "Possible errors: page/locale not found, path traversal detected, remote conflict " +
     "(returns remoteContent + intendedContent for manual merge), permission denied.\n\n" +
+    "IMPORTANT — modal sections: any type: modal without section_id yields modal_missing_section_id " +
+    "(CTAs need url: \"#that-id\"). See explain_site topic 'sections'.\n\n" +
     "IMPORTANT — versioning safety: If the page has active variants (a versioning.yml exists), " +
     "you MUST ask the user before calling this tool: " +
     "'Do you want to edit the live version directly, or create a new draft variant first?' " +
@@ -3787,7 +4317,11 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       );
       if ("error" in apiResult) return apiResult.error;
 
-      const warnings: McpWarning[] = [REPLACE_NO_BINDING_FANOUT, ...variantWarningsIfNeeded(variant)];
+      const warnings: McpWarning[] = [
+        REPLACE_NO_BINDING_FANOUT,
+        UPDATED_AT_STAMP_WARNING,
+        ...variantWarningsIfNeeded(variant),
+      ];
       let side_effects: McpSideEffect[] | undefined;
       let next_actions: NextAction[] = [];
       if (pathInfo.layer === "type_single") {
@@ -3819,6 +4353,20 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       });
       warnings.push(...articleHints.warnings);
       next_actions = [...next_actions, ...articleHints.next_actions];
+
+      const modalHints = hintsAfterReplaceModals({
+        sections: sections as Array<Record<string, unknown>>,
+        slug,
+        locale,
+      });
+      warnings.push(...modalHints.warnings);
+      next_actions = [...next_actions, ...modalHints.next_actions];
+
+      const stampEffect: McpSideEffect = {
+        kind: "locale_yaml",
+        summary: `Wrote ${pathInfo.relativeHint}; section copy/images stamp updated_at (layout-only replace does not).`,
+      };
+      side_effects = [...(side_effects || []), stampEffect];
 
       const parts: string[] = [`sections (${sections.length} item${sections.length !== 1 ? "s" : ""})`];
       if (meta) parts.push(`meta (${Object.keys(meta).length} field${Object.keys(meta).length !== 1 ? "s" : ""})`);
@@ -4024,6 +4572,14 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         return fail(built.message, { code: built.code, mode, path: `${ctDir}/${slug}/${targetFileName}` });
       }
       const localeData = built.localeData;
+      applyEditorialUpdatedAtToData({
+        data: localeData,
+        previous: existing && typeof existing === "object" ? (existing as Record<string, unknown>) : {},
+        operations: operationsFromLocalePayload(localeData),
+        contentType: resolved.contentType,
+        slug,
+        contentRoot: contentPath,
+      });
       const intendedContent = safeDump(localeData);
 
       const commonPath = path.join(dir, "_common.yml");
@@ -4150,7 +4706,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             {
               tool: "run_entry_diagnostics",
               reason: "Validate before going live (async — then poll get_diagnostics_job)",
-              args_hint: { slugs: [slug], freshness: "hard", ...(site ? { site } : {}) },
+              args_hint: { slugs: [slug], freshness: "hard", confirm: true, ...(site ? { site } : {}) },
               priority: "recommended",
             },
             {
@@ -4262,6 +4818,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         detachEntry,
         reattachEntry,
         getReattachSectionLossPreview,
+        ReattachRequiredFieldsError,
       } = await import("../../server/shared-layout-detach.js");
 
       if (!isSharedLayoutType(contentType, contentPath)) {
@@ -4530,18 +5087,85 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
           },
         );
       } catch (e) {
+        if (e instanceof ReattachRequiredFieldsError) {
+          const missing = e.missing_fields;
+          const locales = Object.keys(e.per_locale).filter(
+            (loc) => (e.per_locale[loc] || []).length > 0,
+          );
+          return actionRequired(
+            {
+              success: false,
+              action_required: "fix_reattach_required_fields",
+              code: e.code,
+              message: e.message,
+              contentType,
+              slug,
+              missing_fields: missing,
+              per_locale: e.per_locale,
+              warnings: [
+                {
+                  code: "reattach_does_not_seed_fields",
+                  message:
+                    "Reattach does not invent call_to_action / faq_entries / content from detached sections. Set Fields on each live locale first.",
+                },
+              ],
+            },
+            [
+              {
+                tool: "update_fields",
+                reason:
+                  "Fill attached-required fields on each failing live locale (see missing_fields), then retry set_entry_attachment",
+                args_hint: {
+                  contentType,
+                  slug,
+                  locale: locales[0] || previewLocale,
+                  confirm_live_edit: true,
+                  updates: missing
+                    .map((m) => {
+                      const parts = m.split(".");
+                      const locale = parts[0];
+                      const fieldPath = parts.slice(1).join(".");
+                      const topField = fieldPath.split(".")[0] || fieldPath;
+                      return {
+                        field_path: topField,
+                        value: `<non-empty schema-valid value for ${fieldPath} on locale ${locale}>`,
+                      };
+                    })
+                    .filter(
+                      (u, i, arr) =>
+                        arr.findIndex((x) => x.field_path === u.field_path) === i,
+                    ),
+                  ...siteHint,
+                },
+                priority: "required" as const,
+              },
+              {
+                tool: "set_entry_attachment",
+                reason: "Retry reattach after Fields are filled",
+                args_hint: {
+                  contentType,
+                  slug,
+                  action: "reattach",
+                  confirm: true,
+                  locale: previewLocale,
+                  ...siteHint,
+                },
+                priority: "required" as const,
+              },
+            ],
+          );
+        }
         return fail((e as Error).message, { code: "reattach_failed", contentType, slug });
       }
-    }
+    },
   );
 
-  // get_section_bindings
   mcp.tool(
     "get_section_bindings",
     "Read-only: look up the section-binding group for a section by contentType, slug, and sectionIndex. " +
     "Returns { group: null } when the section is not bound, or the enriched binding group with members. " +
     "Use after structural edits or update_fields when you need membership context. " +
-    "Does not mutate content — binding content sync happens on live update_fields (single-section).",
+    "Does not mutate content — binding content sync happens on live update_fields (single-section). Requires content_view.",
     {
       contentType: z.string().describe("Content type, e.g. 'page' or 'program'"),
       slug: z.string().describe("Page slug"),
@@ -4550,6 +5174,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ contentType, slug, sectionIndex, locale, site }) => {
+      const viewDenied = await denyUnlessContentView(mcpToken, contentType, grants);
+      if (viewDenied) return viewDenied;
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
@@ -4731,7 +5357,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "and schema_org_requirements with coverage { present, missing_slugs } when declared. " +
     "For editor.type json fields, read editor.<field>.schema (JSON Schema) before writing values via " +
     "update_fields — schema is required and returned again on validation failure. " +
-    "Call this before create_entry when unsure how a type works. " +
+    "Call this before create_entry when unsure how a type works. Requires content_view. " +
     "When coverage shows missing_slugs, call ensure_content_type_schema_org to attach seeded companions. " +
     MULTI_SITE_TOOL_BLURB,
     {
@@ -4739,6 +5365,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ contentType, site }) => {
+      const viewDenied = await denyUnlessContentView(mcpToken, contentType, grants);
+      if (viewDenied) return viewDenied;
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error, "get_content_type_info", { contentType });
       const { contentPath, domain } = siteResult;
@@ -4777,7 +5405,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             value: h.value || "slug",
             label: h.label || "name",
             multiple: !!h.multiple,
-            required: !!h.required,
+            required: h.required === true || h.required === "attached" ? h.required : false,
             description: h.description || null,
             system_hints: system_hints ?? [],
             storage_note:
@@ -4865,6 +5493,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
             url_params: urlParams,
             field_mapping: config.field_mapping ?? null,
             editor,
+            editor_required_modes: editorRequiredModes(config),
             relation_fields,
             immutable_slug: !!(config as { immutable_slug?: boolean }).immutable_slug,
             protected_slugs: (config as { protected_slugs?: string[] }).protected_slugs ?? [],
@@ -5025,7 +5654,7 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
     "Works for YAML and DB-backed types via the main server seo-entries API. " +
     "Sections/body content are never returned. " +
     "IMPORTANT: Omitting slugs does NOT dump the full type — returns a minimal sample (default 5; limit 1–20). " +
-    "Pass slugs for full meta on those entries. Prefer get_entry_seo for one slug; get_content_type_info for type contract. " +
+    "Pass slugs for full meta on those entries. Prefer get_entry_seo for one slug; get_content_type_info for type contract. Requires content_view or seo_edit. " +
     MULTI_SITE_TOOL_BLURB,
     {
       contentType: z.string().optional().describe("Restrict to one content type, e.g. 'blog' or 'program'"),
@@ -5035,6 +5664,8 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ contentType, locale, slugs, limit, site }) => {
+      const seoDenied = await denyUnlessContentViewOrSeo(mcpToken, contentType, grants);
+      if (seoDenied) return seoDenied;
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) {
         return siteFailResult(siteResult.error, "list_entry_seo", { contentType, locale, slugs, limit });
@@ -5044,9 +5675,13 @@ export function registerPageTools(mcp: McpServer, _mcpAuthor?: string, mcpToken?
         const configs = loadContentTypes(contentPath);
         const results: Array<Record<string, unknown>> = [];
 
-        const typesToQuery = contentType
+        const allowedTypes = grants ? visibleContentTypes(grants, { seoUnlocksAll: true }) : null;
+        let typesToQuery = contentType
           ? (configs[contentType] ? [contentType] : [])
           : Object.keys(configs);
+        if (allowedTypes) {
+          typesToQuery = typesToQuery.filter((ct) => allowedTypes.has(ct));
+        }
 
         await Promise.all(typesToQuery.map(async (ct) => {
           try {

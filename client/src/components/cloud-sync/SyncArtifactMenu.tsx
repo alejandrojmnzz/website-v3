@@ -38,6 +38,7 @@ export type SyncArtifactKind =
   | "versioning-state"
   | "form-state"
   | "validation-cache"
+  | "gsc-url-inspection"
   | "runtime-issues"
   | "sites-yml"
   | "user-store";
@@ -236,7 +237,10 @@ export default function SyncArtifactMenu({ kind, siteFolder, label }: SyncArtifa
       {showViewer && (
         <Suspense fallback={null}>
           {kind === "sites-yml" ? (
-            <SitesYmlViewerPanel onClose={() => setShowViewer(false)} />
+            <SitesYmlViewerPanel
+              onClose={() => setShowViewer(false)}
+              onSaved={invalidate}
+            />
           ) : (
             <SyncArtifactViewerPanel
               kind={kind}

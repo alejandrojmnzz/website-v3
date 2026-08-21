@@ -11,6 +11,12 @@ export interface SiteConfig {
   githubRepoUrl?: string;
   /** When an image_id is missing locally, resolve it from this site's registry. */
   fallbackContentFolder?: string;
+  /**
+   * Use this site's component-registry (schema / field-editors / examples).
+   * One hop only; the parent must own a registry (must not itself inherit).
+   * When set, this site must not have a local component-registry/ directory.
+   */
+  inheritComponentsFrom?: string;
   /** Hostnames that 301-redirect to this site's canonical domain (e.g. ["www.4geeks.com"]). */
   aliases?: string[];
 }
@@ -25,7 +31,8 @@ const SITES_YML_EXAMPLE = `# sites.yml — required at repo root
 # example.com:
 #   content_folder: site_example-com
 #   github_repo_url: https://github.com/org/example-content
-#   fallback_content_folder: site_parent-com  # optional
+#   fallback_content_folder: site_parent-com  # optional — missing images
+#   inherit_components_from: site_parent-com  # optional — component-registry
 
 bucket_name: my-gcs-bucket
 
@@ -55,14 +62,9 @@ export class SitesYmlRequiredError extends Error {
   }
 }
 
-function parseSitesYmlFile(sitesYml: string): SiteConfig[] {
-  if (!fs.existsSync(sitesYml)) {
-    throw new SitesYmlRequiredError("sites.yml not found at project root");
-  }
-
+function parseSitesYmlContent(raw: string): { configs: SiteConfig[]; bucketName: string | null } {
   let parsed: Record<string, unknown> | null;
   try {
-    const raw = fs.readFileSync(sitesYml, "utf-8");
     parsed = yaml.load(raw) as Record<string, unknown> | null;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -74,33 +76,49 @@ function parseSitesYmlFile(sitesYml: string): SiteConfig[] {
   }
 
   const configs: SiteConfig[] = [];
+  let bucketName: string | null = null;
 
   if (typeof parsed.bucket_name === "string" && parsed.bucket_name) {
-    _bucketName = parsed.bucket_name;
+    bucketName = parsed.bucket_name;
   }
 
   for (const [domain, config] of Object.entries(parsed)) {
     if (domain === "bucket_name") continue;
-    if (config && typeof config === "object") {
-      const c = config as Record<string, unknown>;
-      const fallbackFolder =
-        (typeof c.fallback_content_folder === "string" && c.fallback_content_folder) ||
-        (typeof c.fallbackContentFolder === "string" && c.fallbackContentFolder) ||
-        undefined;
-      const rawAliases = (c.aliases ?? c.alias) as unknown;
-      const aliases = Array.isArray(rawAliases)
-        ? rawAliases.filter((a): a is string => typeof a === "string" && a.trim() !== "").map((a) => a.trim().toLowerCase())
-        : typeof rawAliases === "string" && rawAliases.trim() !== ""
-          ? [rawAliases.trim().toLowerCase()]
-          : undefined;
-      configs.push({
-        domain,
-        contentFolder: (c.content_folder as string) || (c.contentFolder as string) || "site_default",
-        githubRepoUrl: (c.github_repo_url as string) || (c.githubRepoUrl as string) || undefined,
-        fallbackContentFolder: fallbackFolder || undefined,
-        aliases,
-      });
+    if (!config || typeof config !== "object" || Array.isArray(config)) {
+      throw new SitesYmlRequiredError(
+        `site "${domain}" must be a YAML mapping with content_folder (got ${config === null ? "null" : Array.isArray(config) ? "array" : typeof config})`,
+      );
     }
+    const c = config as Record<string, unknown>;
+    const contentFolderRaw =
+      (typeof c.content_folder === "string" && c.content_folder.trim()) ||
+      (typeof c.contentFolder === "string" && c.contentFolder.trim()) ||
+      "";
+    if (!contentFolderRaw) {
+      throw new SitesYmlRequiredError(`site "${domain}" is missing required content_folder`);
+    }
+    const fallbackFolder =
+      (typeof c.fallback_content_folder === "string" && c.fallback_content_folder.trim()) ||
+      (typeof c.fallbackContentFolder === "string" && c.fallbackContentFolder.trim()) ||
+      undefined;
+    const inheritFrom =
+      (typeof c.inherit_components_from === "string" && c.inherit_components_from.trim()) ||
+      (typeof c.inheritComponentsFrom === "string" && c.inheritComponentsFrom.trim()) ||
+      undefined;
+    const rawAliases = (c.aliases ?? c.alias) as unknown;
+    const aliases = Array.isArray(rawAliases)
+      ? rawAliases.filter((a): a is string => typeof a === "string" && a.trim() !== "").map((a) => a.trim().toLowerCase())
+      : typeof rawAliases === "string" && rawAliases.trim() !== ""
+        ? [rawAliases.trim().toLowerCase()]
+        : undefined;
+    configs.push({
+      domain,
+      contentFolder: contentFolderRaw,
+      githubRepoUrl: (c.github_repo_url as string) || (c.githubRepoUrl as string) || undefined,
+      fallbackContentFolder: fallbackFolder || undefined,
+      inheritComponentsFrom: inheritFrom || undefined,
+      aliases,
+    });
   }
 
   if (configs.length === 0) {
@@ -124,7 +142,107 @@ function parseSitesYmlFile(sitesYml: string): SiteConfig[] {
     }
   }
 
+  validateFallbackContentFolders(configs);
+  validateInheritComponentsFrom(configs);
+
+  return { configs, bucketName };
+}
+
+/** Validate sites.yml text without writing to disk. Throws SitesYmlRequiredError on failure. */
+export function validateSitesYmlContent(raw: string): SiteConfig[] {
+  return parseSitesYmlContent(raw).configs;
+}
+
+function parseSitesYmlFile(sitesYml: string): SiteConfig[] {
+  if (!fs.existsSync(sitesYml)) {
+    throw new SitesYmlRequiredError("sites.yml not found at project root");
+  }
+
+  let raw: string;
+  try {
+    raw = fs.readFileSync(sitesYml, "utf-8");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new SitesYmlRequiredError(`failed to read sites.yml: ${msg}`);
+  }
+
+  const { configs, bucketName } = parseSitesYmlContent(raw);
+  _bucketName = bucketName;
   return configs;
+}
+
+function normalizeFolderKey(folder: string): string {
+  return folder.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+/** fallback_content_folder must name another site's content_folder. */
+function validateFallbackContentFolders(configs: SiteConfig[]): void {
+  const byFolder = new Map(configs.map((c) => [normalizeFolderKey(c.contentFolder), c]));
+
+  for (const c of configs) {
+    const fallback = c.fallbackContentFolder?.trim();
+    if (!fallback) continue;
+    const want = normalizeFolderKey(fallback);
+    const self = normalizeFolderKey(c.contentFolder);
+    if (want === self) {
+      throw new SitesYmlRequiredError(
+        `site "${c.domain}" fallback_content_folder cannot be its own content_folder (${c.contentFolder})`,
+      );
+    }
+    if (!byFolder.has(want)) {
+      throw new SitesYmlRequiredError(
+        `site "${c.domain}" fallback_content_folder "${fallback}" is not a content_folder of any site in sites.yml`,
+      );
+    }
+  }
+}
+
+/** One-hop inherit: known folder, not self, parent does not inherit, parent exists on disk. */
+function validateInheritComponentsFrom(configs: SiteConfig[]): void {
+  const byFolder = new Map(configs.map((c) => [normalizeFolderKey(c.contentFolder), c]));
+  const cwd = process.cwd();
+
+  for (const c of configs) {
+    const inherit = c.inheritComponentsFrom?.trim();
+    if (!inherit) continue;
+    const want = normalizeFolderKey(inherit);
+    const self = normalizeFolderKey(c.contentFolder);
+    if (want === self) {
+      throw new SitesYmlRequiredError(
+        `site "${c.domain}" inherit_components_from cannot be its own content_folder (${c.contentFolder})`,
+      );
+    }
+    const parent = byFolder.get(want);
+    if (!parent) {
+      throw new SitesYmlRequiredError(
+        `site "${c.domain}" inherit_components_from "${inherit}" is not a content_folder of any site in sites.yml`,
+      );
+    }
+    if (parent.inheritComponentsFrom?.trim()) {
+      throw new SitesYmlRequiredError(
+        `site "${c.domain}" inherit_components_from "${inherit}" is invalid — parent site "${parent.domain}" also inherits (one hop only)`,
+      );
+    }
+    const parentAbs = path.isAbsolute(parent.contentFolder)
+      ? parent.contentFolder
+      : path.join(cwd, parent.contentFolder);
+    if (!fs.existsSync(parentAbs) || !fs.statSync(parentAbs).isDirectory()) {
+      throw new SitesYmlRequiredError(
+        `site "${c.domain}" inherit_components_from "${inherit}" — parent folder missing on disk: ${parentAbs}`,
+      );
+    }
+  }
+}
+
+/** Lookup inherit_components_from for a content folder (undefined if none / unknown). */
+export function getInheritComponentsFrom(contentFolder: string): string | undefined {
+  const want = normalizeFolderKey(contentFolder);
+  for (const c of getSiteConfigs()) {
+    if (normalizeFolderKey(c.contentFolder) === want) {
+      return c.inheritComponentsFrom?.trim() || undefined;
+    }
+  }
+  return undefined;
 }
 
 /** Load site configs from sites.yml; throws SitesYmlRequiredError when missing or invalid. */

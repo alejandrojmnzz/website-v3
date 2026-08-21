@@ -28,6 +28,10 @@ All marketing content lives under the site folder from `sites.yml` (`content_fol
   image-registry.json     # centralized image metadata
   theme.json              # color theme tokens
   component-registry/     # versioned component schemas and examples
+                          # Optional: omit when sites.yml sets inherit_components_from
+                          # to another site's folder (parent-only; child must not have this dir).
+                          # Platform-shared types (e.g. hero, awards_marquee, text_block, article)
+                          # live under shared/component-registry/ in the app repo.
   menus/                  # menu definitions (navbar, footer, etc.)
   <type-directory>/       # one folder per content type (e.g. pages/, programs/)
     <slug>/
@@ -37,6 +41,10 @@ All marketing content lives under the site folder from `sites.yml` (`content_fol
       draft.en.yml        # unpublished draft (or any {variant}.{locale}.yml)
       versioning.yml      # optional: A/B / draft variant configuration
 ```
+
+**Layout rule:** entries are always `{type-dir}/{slug}/{locale}.yml` (folder per slug). Flat files like `pages/about.en.yml` are **not** indexed. Site Manager scaffold and `create_entry` write folders only.
+
+**sites.yml `inherit_components_from`:** optional parent `content_folder` for that site's component-registry (schema / field-editors / examples). One hop; parent must own a registry. Non-effect: does not copy registry files into the child; `create_entry` still writes YAML under the **current** site's content folder.
 
 ## Draft vs live vs variant
 
@@ -99,10 +107,22 @@ Resolve order at page delivery: **single → meta → param**. Site vars (`brand
 
 **Mental model:** schema / Fields stay in `single.*`. SEO Meta tab = SEO head only (`meta.*`). Mapping remaps are for DB columns and `function:` fields. New schema fields need a default; if no entry has the key yet, warn “new field”.
 
+### SEO clustering (per-entry)
+
+- **Type gate:** `seo_monitoring.enabled` on the content type in `content-types.yml` (staff Content Type manage). Omitted = off. MCP cannot toggle the type flag.
+- **Per-entry toggle (MCP):** virtual `seo.include_in_clustering` (boolean, never YAML). Prefer this over raw null. Requires type monitoring on.
+  - `false` → expands to `seo.pillar_path: null` + `seo.is_pillar: false` (same as staff “Include in SEO clustering” off).
+  - `true` → requires membership after merge: non-empty `seo.pillar_path` **or** `seo.is_pillar: true` (`main_keyword` optional).
+  - Conflict: `false` + non-null `seo.pillar_path` in the same `update_fields` → reject.
+- **Raw opt-out:** `seo.pillar_path: null` still works; MCP warns `seo_cluster_monitoring_disabled`. Empty/missing path = cluster gap, not opt-out.
+- **Reads:** `get_entry_seo.include_in_clustering`; `get_entry_fields` injects the virtual row (`writable` only when type monitored).
+
 ### Live SEO + Required for publish
 
 - **Live locale writes / publish / promote** require resolved non-empty `meta.page_title` and `meta.description` (no leftover `{{ }}`). Draft-only writes are exempt. Gate: `server/live-entry-seo-gate.ts` + `shared/validateRequiredMeta.ts`.
-- **`editor.<field>.required: true`** (Fields UI asterisk / YAML): drafts may omit the value; `publish_draft` / `promote_variant` and live saves fail if empty or cleared. Distinct from field_mapping `?` (key may be absent). Blog sets `title` + `description` required. Validator: `required-fields` (`scripts/validation/validators/required-fields.ts`).
+- **`editor.<field>.required: true`** (Fields UI asterisk / YAML): drafts may omit the value; `publish_draft` / `promote_variant` and live saves fail if empty or cleared. Distinct from field_mapping `?` (key may be absent). JSON `editor.type: json` fields must also satisfy `editor.<field>.schema` (and `call_to_action` conversion/tag semantics). Validator: `required-fields` (`scripts/validation/validators/required-fields.ts`). Codes: `REQUIRED_FIELD_EMPTY`.
+- **`editor.<field>.required: attached`**: same satisfaction rules **only** when the entry is on a shared-layout type and **not** `detached: true`. Detached entries skip these fields (Fields UI: “Optional while detached”). On non–shared-layout types, `attached` behaves like `true`. Diagnostics code: `REQUIRED_ATTACHED_FIELD_EMPTY`. `get_content_type_info.editor_required_modes` exposes `false | true | attached` per field.
+- **Reattach gate:** `set_entry_attachment` / `POST .../reattach` fails with `code: reattach_missing_required_fields` if **any live** locale is missing/invalid attached-required fields (`missing_fields` like `es.call_to_action.conversion_name`). Draft/variant files ignored. Does not seed CTA/FAQ/content from detached sections.
 - **Fields diagnostics (batch, does not write or block HTTP save):**
   - `editor-field-types` — `editor.type` / json schema / relation shape vs live `entryFields`. Codes: `EDITOR_TYPE_UNKNOWN`, `EDITOR_JSON_SCHEMA_MISSING`, `EDITOR_RELATION_SOURCE_MISSING`, `EDITOR_TYPE_MISSING`, `EDITOR_ORPHAN_HINT`, `FIELD_TYPE_MISMATCH`, `FIELD_JSON_INVALID`, `FIELD_JSON_STORED_AS_STRING`, `FIELD_RELATION_INVALID`. Skips empty values and `{{ }}`. Numeric string `"42"` is a valid number. Image/pdf = string shape only (`images` owns broken assets).
   - `unknown-keys` — extra YAML/Fields keys not in `field_mapping` or structural allowlist (`meta`, `sections`, …). Code: `UNKNOWN_FIELD_KEY` (warning).

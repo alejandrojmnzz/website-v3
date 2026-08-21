@@ -6,14 +6,13 @@ import { getOrganizationTwitterHandle, getWebsiteDefaultSocialImage } from "./sc
 import { contentIndex } from "./content-index";
 import { deepMerge } from "./utils/deepMerge";
 import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
-import { getFolder, getContentTypeConfig, resolveUrlPatternWithMapping } from "./content-types";
+import { getFolder, getContentTypeConfig, resolveUrlPatternWithMapping, resolveEntryUpdatedAt } from "./content-types";
 import { getBaseUrl, generateHreflangTags, generateListingHreflangTags, generateHomepageHreflangTags } from "./hreflang";
 import { getHomePage, getSupportedLocales, getDefaultLocale, resolveEffectiveRobots, isIndexingBlocked } from "./settings";
 import { resolveDynamicEntries } from "./dynamic-entries";
 import { mergeSingleTemplate } from "./database-single-loader";
 import { resolveAllTemplateVars } from "./resolve-template-vars";
 import { collectSectionSchemas, type SchemaComponentContext } from "./schema-components";
-import { normalizeFlexibleDate } from "@shared/normalizeFlexibleDate";
 import { combinedArticleContentFromSections } from "@shared/reading-time";
 import { resolveRelationsOnEntry } from "./resolve-relations";
 import {
@@ -306,11 +305,15 @@ export async function generateDatabaseSsrHtml(
   const title = ((record.title as string) || "").replace(/"/g, "&quot;");
   const description = ((record.description as string) || (record.preview as string) || "").replace(/"/g, "&quot;");
   const image = (record.preview as string) || (record.image as string) || "";
-  const publishedAt = (record.published_at as string) || (record.created_at as string) || "";
+  const publishedAt = (record.published_at as string) || "";
   const updatedAt =
-    normalizeFlexibleDate(record.updated_at) ||
-    normalizeFlexibleDate(publishedAt) ||
-    publishedAt;
+    resolveEntryUpdatedAt({
+      contentType,
+      slug: typeof record.slug === "string" ? record.slug : undefined,
+      locale,
+      record,
+      contentRoot,
+    }) || undefined;
 
   let authorName = "4Geeks Academy";
   if (record.author && typeof record.author === "object") {
@@ -482,6 +485,13 @@ export async function generateSsrSchemaHtml(url: string, ci: typeof contentIndex
     }
 
     const scripts: string[] = [];
+    const yamlUpdatedAt = resolveEntryUpdatedAt({
+      contentType: route.contentType,
+      slug: route.slug,
+      locale: route.locale,
+      record: pageData,
+      contentRoot,
+    });
 
     // Production emitters: SSR section pipeline only (no schema.include).
     const sections = pageData.sections as Array<Record<string, unknown>> | undefined;
@@ -511,6 +521,7 @@ export async function generateSsrSchemaHtml(url: string, ci: typeof contentIndex
         description:
           typeof metaForSchema?.description === "string" ? metaForSchema.description : undefined,
         image: typeof metaForSchema?.og_image === "string" ? metaForSchema.og_image : undefined,
+        updatedAt: yamlUpdatedAt || undefined,
       };
       for (const sectionSchema of collectSectionSchemas(withDynamic, context)) {
         scripts.push(
@@ -536,6 +547,7 @@ export async function generateSsrSchemaHtml(url: string, ci: typeof contentIndex
       socialImageUrl && !ogImage ? `<meta property="og:image" content="${socialImageUrl}" />` : "",
       socialImageDimensions ? `<meta property="og:image:width" content="${socialImageDimensions.width}" />` : "",
       socialImageDimensions ? `<meta property="og:image:height" content="${socialImageDimensions.height}" />` : "",
+      yamlUpdatedAt ? `<meta property="article:modified_time" content="${yamlUpdatedAt}" />` : "",
     ].filter(Boolean);
 
     const homePage = getHomePage();

@@ -46,8 +46,8 @@ export type EditorHint = {
   split_comma_values?: boolean;
   cache_images?: boolean;
   description?: string;
-  /** Required for publish / cannot clear when live. */
-  required?: boolean;
+  /** Required for publish / cannot clear when live. `"attached"` = only when not detached. */
+  required?: boolean | "attached";
   /**
    * Required when type is `json`. JSON Schema document validated on Apply
    * and used to lint/persist structured field values.

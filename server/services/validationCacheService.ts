@@ -358,6 +358,17 @@ export class ValidationCacheService {
     this.runMetaByEntry[entryKey] = { ...existing, dirty: true };
   }
 
+  /** Remove all issues and run-meta for an entry key (e.g. unpublish / delete variant). */
+  clearEntryKey(entryKey: string): void {
+    const ids = [...(this.indexes.byEntry[entryKey] ?? [])];
+    for (const id of ids) {
+      delete this.issues[id];
+    }
+    delete this.indexes.byEntry[entryKey];
+    delete this.runMetaByEntry[entryKey];
+    this.indexes = rebuildIndexes(this.issues, this.indexes.byUrl);
+  }
+
   markScopeDirty(scope: ValidationScope): void {
     const existing = this.runMetaByScope[scope] ?? {
       lastRunAt: new Date().toISOString(),
@@ -378,6 +389,8 @@ export class ValidationCacheService {
         : null;
 
     for (const file of contentFiles) {
+      // Shared public URLs: only live (non-variant) rows own byUrl → entryKey.
+      if (file.variant) continue;
       const ek = entryKeyFromContentFile(file);
       const url = getCanonicalUrl(file);
       this.indexes.byUrl[url] = ek;
@@ -492,7 +505,15 @@ export class ValidationCacheService {
       const touches = issue.targets.some(
         (t) => t.type === "entry" && entryKeySet.has(t.entryKey),
       );
-      if (touches || issue.targets.length === 0) {
+      const isFileOnlyTarget =
+        issue.targets.length > 0 && issue.targets.every((t) => t.type === "file");
+      // section-variants re-scans shared templates (single.*.yml) on every partial run;
+      // file-only cached rows must be cleared even when entryKeySet is scoped to one URL.
+      if (
+        touches ||
+        issue.targets.length === 0 ||
+        (validatorName === "section-variants" && isFileOnlyTarget)
+      ) {
         toDelete.push(id);
       }
     }
@@ -602,6 +623,37 @@ export class ValidationCacheService {
 
   getLastFullRunAt(): string | null {
     return this.lastFullRunAt;
+  }
+
+  getLastSiteWideRunAt(): string | null {
+    return this.lastSiteWideRunAt;
+  }
+
+  /** Remove all cached issues for a specific URL+code pair and flush to disk. */
+  async dismissIssuesByUrlAndCode(url: string, code: string): Promise<number> {
+    const toDelete = Object.values(this.issues).filter(
+      (issue) => issue.code === code && issue.targets?.some((t) => t.type === "entry" && t.url === url),
+    );
+    for (const issue of toDelete) delete this.issues[issue.id];
+    if (toDelete.length > 0) {
+      this.indexes = rebuildIndexes(this.issues, this.indexes.byUrl);
+      await this.flush();
+      log.info(`[ValidationCache] Dismissed ${toDelete.length} issue(s) for url=${url} code=${code}`);
+    }
+    return toDelete.length;
+  }
+
+  async dismissIssuesByFileAndCode(file: string, code: string): Promise<number> {
+    const toDelete = Object.values(this.issues).filter(
+      (issue) => issue.code === code && issue.file === file,
+    );
+    for (const issue of toDelete) delete this.issues[issue.id];
+    if (toDelete.length > 0) {
+      this.indexes = rebuildIndexes(this.issues, this.indexes.byUrl);
+      await this.flush();
+      log.info(`[ValidationCache] Dismissed ${toDelete.length} issue(s) for file=${file} code=${code}`);
+    }
+    return toDelete.length;
   }
 
   /** Wipe all stored issues, indexes, run meta, and database health entries; flush to disk. */
@@ -742,17 +794,7 @@ export class ValidationCacheService {
   }
 }
 
-export function listCacheIssuesFromStore(
-  cache: ValidationCacheService,
-  filters?: {
-    entryKey?: string;
-    url?: string;
-    scope?: ValidationScope;
-    redirect?: string;
-    media?: string;
-    database?: string;
-  },
-): Array<{
+export type CacheIssueListRow = {
   url: string;
   entryKey?: string;
   severity: "error" | "warning";
@@ -763,7 +805,50 @@ export function listCacheIssuesFromStore(
   lastFullRunAt?: string;
   suggestion?: string;
   file?: string;
-}> {
+};
+
+export type CacheIssueFacets = {
+  validator: string[];
+  category: string[];
+  code: string[];
+  severity: Array<"error" | "warning">;
+};
+
+export type ListCacheIssuesFilters = {
+  entryKey?: string;
+  url?: string;
+  scope?: ValidationScope;
+  redirect?: string;
+  media?: string;
+  database?: string;
+  file?: string;
+  validator?: string;
+  category?: string;
+  code?: string;
+  severity?: "error" | "warning";
+};
+
+function uniqueSorted(values: Iterable<string>): string[] {
+  return [...new Set(values)].filter(Boolean).sort((a, b) => a.localeCompare(b));
+}
+
+export function buildCacheIssueFacets(rows: CacheIssueListRow[]): CacheIssueFacets {
+  const severities = new Set<"error" | "warning">();
+  for (const r of rows) {
+    if (r.severity === "error" || r.severity === "warning") severities.add(r.severity);
+  }
+  return {
+    validator: uniqueSorted(rows.map((r) => r.validator ?? "")),
+    category: uniqueSorted(rows.map((r) => r.category ?? "")),
+    code: uniqueSorted(rows.map((r) => r.code)),
+    severity: (["error", "warning"] as const).filter((s) => severities.has(s)),
+  };
+}
+
+export function listCacheIssuesFromStore(
+  cache: ValidationCacheService,
+  filters?: ListCacheIssuesFilters,
+): { issues: CacheIssueListRow[]; facets: CacheIssueFacets } {
   let issues = cache.getAllIssues();
 
   if (filters?.entryKey) {
@@ -791,20 +876,24 @@ export function listCacheIssuesFromStore(
       .filter((i) =>
         i.targets.some((t) => t.type === "database" && t.dbSlug === filters.database),
       );
+  } else if (filters?.file) {
+    issues = cache.getAllIssues().filter((i) => i.file === filters.file);
   }
 
-  const out: Array<{
-    url: string;
-    entryKey?: string;
-    severity: "error" | "warning";
-    code: string;
-    message: string;
-    validator?: string;
-    category?: string;
-    lastFullRunAt?: string;
-    suggestion?: string;
-    file?: string;
-  }> = [];
+  if (filters?.validator) {
+    issues = issues.filter((i) => i.validator === filters.validator);
+  }
+  if (filters?.category) {
+    issues = issues.filter((i) => i.category === filters.category);
+  }
+  if (filters?.code) {
+    issues = issues.filter((i) => i.code === filters.code);
+  }
+  if (filters?.severity) {
+    issues = issues.filter((i) => i.severity === filters.severity);
+  }
+
+  const out: CacheIssueListRow[] = [];
 
   for (const issue of issues) {
     if (issue.severity === "info") continue;
@@ -842,7 +931,7 @@ export function listCacheIssuesFromStore(
       });
     }
   }
-  return out;
+  return { issues: out, facets: buildCacheIssueFacets(out) };
 }
 
 let _defaultInstance: ValidationCacheService | null = null;

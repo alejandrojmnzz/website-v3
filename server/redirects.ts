@@ -13,6 +13,7 @@ import { child } from "./logger";
 import { applyRedirectTraceCookie } from "./redirect-trace-cookie";
 import type { RedirectTraceMatchType } from "@shared/redirect-trace";
 import { localePrefixFromPath } from "@shared/runtime-issues";
+import { isLocaleHomeAlias } from "@shared/public-app-routes";
 const log = child({ module: "redirects" });
 
 // ============================================================================
@@ -731,6 +732,258 @@ export function testRedirect(
   // Debug tester prioritizes correctness over speed: always re-read from disk and
   // build maps from scratch (never the live request cache).
   return createPublicUrlResolver(ci, { freshRedirects: true }).test(rawInput, locale);
+}
+
+export type RedirectConflictKind = "duplicate_from" | "regex_shadowed" | "overwrites_content";
+
+export interface RedirectInspectConflict {
+  kind: RedirectConflictKind;
+  from: string;
+  source?: string;
+  to?: string | Record<string, string>;
+  message: string;
+}
+
+export interface RedirectInspectFix {
+  id: string;
+  kind: string;
+  file?: string;
+  from: string;
+  effect: string;
+  requires_confirmation: boolean;
+  args_hint: Record<string, unknown>;
+}
+
+export interface RedirectInspectResult {
+  winner: RedirectTestResult;
+  conflicts: RedirectInspectConflict[];
+  fixes: RedirectInspectFix[];
+  /** Content-index known URLs only; locale-home aliases (`/`, `/en`, `/es`, `/us`) are never live. */
+  live_content: boolean;
+}
+
+export function isCustomRedirectSource(source: string | undefined): boolean {
+  return /(?:^|\/)custom-redirects\.yml$/.test(source || "");
+}
+
+/**
+ * Live content URL for overwrite checks: content-index known URLs only.
+ * Locale-home aliases always return false (they must 301 to canonical homes).
+ */
+export function isLiveContentUrl(
+  rawPath: string,
+  ci: typeof contentIndex = contentIndex,
+): boolean {
+  const urlPath = toPublicUrlPath(rawPath);
+  const normalized = normalizePath(urlPath);
+  if (isLocaleHomeAlias(normalized) || isLocaleHomeAlias(urlPath)) return false;
+  return ci.isKnownUrl(urlPath) || ci.isKnownUrl(normalized);
+}
+
+function normalizeRedirectFrom(from: string): string {
+  let n = from.toLowerCase();
+  if (!n.startsWith("/")) n = `/${n}`;
+  if (n.length > 1 && n.endsWith("/")) n = n.slice(0, -1);
+  return n;
+}
+
+function entryMatchesPath(entry: RedirectEntry, urlPath: string, normalized: string): boolean {
+  if (isRegexPattern(entry.from)) {
+    try {
+      return new RegExp(`^${entry.from}$`, "i").test(urlPath);
+    } catch {
+      return false;
+    }
+  }
+  return normalizeRedirectFrom(entry.from) === normalized;
+}
+
+function isSameWinner(entry: RedirectEntry, winner: RedirectTestResult): boolean {
+  if (!winner.match || !winner.from) return false;
+  if ((entry.source || "") !== (winner.source || "")) return false;
+  if (isRegexPattern(entry.from) || winner.matchType === "regex") {
+    return entry.from === winner.from;
+  }
+  return normalizeRedirectFrom(entry.from) === normalizeRedirectFrom(winner.from);
+}
+
+function buildInspectFixes(
+  winner: RedirectTestResult,
+  conflicts: RedirectInspectConflict[],
+): RedirectInspectFix[] {
+  const fixes: RedirectInspectFix[] = [];
+  const winnerFrom = winner.from || "";
+
+  const winnerResolved = winner.resolvedTo
+    ? normalizePath(toPublicUrlPath(winner.resolvedTo))
+    : "";
+  if (
+    winner.match &&
+    winnerFrom &&
+    winner.source &&
+    !winner.source.startsWith("canonical:") &&
+    normalizeRedirectFrom(winnerFrom) === winnerResolved
+  ) {
+    fixes.push({
+      id: "delete_self_redirect",
+      kind: "self_redirect",
+      file: winner.source,
+      from: winnerFrom,
+      effect: "Remove the self-redirect so the URL is no longer a loop.",
+      requires_confirmation: false,
+      args_hint: {
+        tool: "update_redirect",
+        action: "delete",
+        from: winnerFrom,
+        source: winner.source,
+      },
+    });
+  }
+
+  for (const conflict of conflicts) {
+    if (conflict.kind === "duplicate_from" && conflict.source) {
+      fixes.push({
+        id: `delete_duplicate:${conflict.source}`,
+        kind: "duplicate_from",
+        file: conflict.source,
+        from: conflict.from,
+        effect: `Remove the duplicate from ${conflict.source}. The winner rule still fires.`,
+        requires_confirmation: false,
+        args_hint: {
+          tool: "update_redirect",
+          action: "delete",
+          from: conflict.from,
+          source: conflict.source,
+        },
+      });
+    }
+    if (conflict.kind === "regex_shadowed" && conflict.source && winner.from) {
+      const custom = isCustomRedirectSource(conflict.source) && isCustomRedirectSource(winner.source);
+      fixes.push({
+        id: `move_above:${conflict.from}`,
+        kind: "regex_shadowed",
+        file: conflict.source,
+        from: conflict.from,
+        effect: custom
+          ? `Move this rule above ${winner.from} so it matches first.`
+          : "This regex is shadowed; only custom-redirects.yml rules can be reordered with before_from.",
+        requires_confirmation: false,
+        args_hint: custom
+          ? {
+              tool: "update_redirect",
+              action: "move",
+              from: conflict.from,
+              before_from: winner.from,
+            }
+          : {
+              tool: "update_redirect",
+              action: "delete",
+              from: conflict.from,
+              source: conflict.source,
+            },
+      });
+    }
+    if (conflict.kind === "overwrites_content" && winner.source && winnerFrom) {
+      fixes.push({
+        id: "remove_overwrite_redirect",
+        kind: "overwrites_content",
+        file: winner.source,
+        from: winnerFrom,
+        effect:
+          "Remove the redirect so the live URL is no longer overwritten. Confirm with the user: the path will no longer 301.",
+        requires_confirmation: true,
+        args_hint: {
+          tool: "update_redirect",
+          action: "delete",
+          from: winnerFrom,
+          source: winner.source,
+          confirm_overwrite_content: true,
+        },
+      });
+      fixes.push({
+        id: "keep_overwrite_alias",
+        kind: "overwrites_content",
+        file: winner.source,
+        from: winnerFrom,
+        effect:
+          "Keep the 301. Locale-home aliases (/ , /en, /es, /us) are not live content; other paths stay flagged until the content index no longer lists them.",
+        requires_confirmation: true,
+        args_hint: {
+          tool: "update_redirect",
+        },
+      });
+    }
+  }
+
+  return fixes;
+}
+
+/**
+ * First-match winner plus other claims (duplicates, shadowed regex, live-URL overwrite).
+ * Does not mutate. Pass `winner` to reuse an already-tested result.
+ */
+export function inspectRedirect(
+  rawInput: string,
+  locale: string = "en",
+  ci: typeof contentIndex = contentIndex,
+  winner?: RedirectTestResult,
+): RedirectInspectResult {
+  const resolvedWinner = winner ?? testRedirect(rawInput, locale, ci);
+  const urlPath = toPublicUrlPath(rawInput);
+  const normalized = normalizePath(urlPath);
+  const liveContent = isLiveContentUrl(normalized, ci);
+  const entries = getFreshRedirectEntries(ci);
+  const conflicts: RedirectInspectConflict[] = [];
+
+  if (resolvedWinner.match && resolvedWinner.from && !resolvedWinner.source?.startsWith("canonical:")) {
+    for (const entry of entries) {
+      if (isSameWinner(entry, resolvedWinner)) continue;
+      if (!entryMatchesPath(entry, urlPath, normalized)) continue;
+
+      const sameFrom =
+        !isRegexPattern(entry.from) &&
+        resolvedWinner.matchType !== "regex" &&
+        normalizeRedirectFrom(entry.from) === normalizeRedirectFrom(resolvedWinner.from);
+
+      if (sameFrom) {
+        conflicts.push({
+          kind: "duplicate_from",
+          from: entry.from,
+          source: entry.source,
+          to: entry.to,
+          message: `Also claimed by ${entry.source} (does not fire; first-match winner is ${resolvedWinner.source}).`,
+        });
+        continue;
+      }
+
+      if (isRegexPattern(entry.from)) {
+        conflicts.push({
+          kind: "regex_shadowed",
+          from: entry.from,
+          source: entry.source,
+          to: entry.to,
+          message: `Pattern also matches but never runs (shadowed by ${resolvedWinner.from} from ${resolvedWinner.source}).`,
+        });
+      }
+    }
+
+    if (liveContent) {
+      conflicts.push({
+        kind: "overwrites_content",
+        from: resolvedWinner.from,
+        source: resolvedWinner.source,
+        to: resolvedWinner.to,
+        message: `Redirect "${normalized}" conflicts with an existing content URL.`,
+      });
+    }
+  }
+
+  return {
+    winner: resolvedWinner,
+    conflicts,
+    fixes: buildInspectFixes(resolvedWinner, conflicts),
+    live_content: liveContent,
+  };
 }
 
 export function clearRedirectCache(): void {

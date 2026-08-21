@@ -1,7 +1,9 @@
 import fs from "fs";
 import path from "path";
 import { GoogleAuth, type JWTInput } from "google-auth-library";
+import { gscUrlInspectionReadKeys, siteSyncGcsKey, SYNC_FILENAMES } from "@shared/gcsKeys";
 import { CACHE_DIR } from "./db-cache";
+import { gcs } from "./gcs";
 import { child } from "./logger";
 import type { DebugSitemapUrl } from "./sitemap";
 import { getSearchConsoleSettings } from "./settings";
@@ -9,9 +11,11 @@ import { getSearchConsoleSettings } from "./settings";
 const log = child({ module: "gsc-url-inspection" });
 
 export const FRESH_MS = 60 * 60 * 1000;
+export const STALE_MS = 7 * 24 * 60 * 60 * 1000;
+export const GSC_GCS_DEBOUNCE_MS = 30_000;
 export const MAX_INSPECT_URLS = 10;
 export const EXCEPTION_CAP = 25;
-const FILENAME = "gsc-url-inspection.json";
+const FILENAME = SYNC_FILENAMES.gscUrlInspection;
 const GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
 const INSPECT_ENDPOINT = "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect";
 const SITES_ENDPOINT = "https://www.googleapis.com/webmasters/v3/sites";
@@ -52,6 +56,7 @@ export interface GscInspectionSummary {
   notIndexed: number;
   errors: number;
   neverChecked: number;
+  stale: number;
   notOnSitemap: number;
   newestInspectedAt: string | null;
   byContentType: Record<string, GscCoverageBucket>;
@@ -95,10 +100,42 @@ type StoreFile = { records: Record<string, GscInspectionRecord> };
 
 const memory = new Map<string, StoreFile>();
 let cacheRoot = CACHE_DIR;
+let productionOverride: boolean | null = null;
+
+type GscGcsClient = {
+  available: boolean;
+  initBootstrapFromEnv: () => void;
+  downloadFirstExisting: (keys: string[]) => Promise<{ data: Buffer; key: string } | null>;
+  debouncedUpload: (key: string, data: Buffer, contentType?: string, delayMs?: number) => void;
+  upload: (key: string, data: Buffer, contentType?: string) => Promise<unknown>;
+};
+
+let gcsOverride: GscGcsClient | null = null;
+
+function isGscGcsProduction(): boolean {
+  return productionOverride ?? process.env.NODE_ENV === "production";
+}
+
+function gcsClient(): GscGcsClient {
+  return gcsOverride ?? gcs;
+}
 
 export function setGscCacheRootForTests(dir: string | null): void {
   cacheRoot = dir ?? CACHE_DIR;
   memory.clear();
+}
+
+export function setGscGcsSyncForTests(opts: {
+  production?: boolean | null;
+  gcs?: GscGcsClient | null;
+} | null): void {
+  if (!opts) {
+    productionOverride = null;
+    gcsOverride = null;
+    return;
+  }
+  if (opts.production !== undefined) productionOverride = opts.production;
+  if (opts.gcs !== undefined) gcsOverride = opts.gcs;
 }
 
 export function resetGscInspectionMemory(): void {
@@ -137,7 +174,11 @@ export function loadStore(contentRootName: string): StoreFile {
   }
 }
 
-export function saveStore(contentRootName: string, store: StoreFile): void {
+export function saveStore(
+  contentRootName: string,
+  store: StoreFile,
+  opts?: { skipGcs?: boolean },
+): void {
   const filePath = sidecarPath(contentRootName);
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
@@ -155,6 +196,161 @@ export function saveStore(contentRootName: string, store: StoreFile): void {
     throw err;
   }
   memory.set(contentRootName, store);
+  if (opts?.skipGcs) return;
+  queueGscInspectionUpload(contentRootName, json);
+}
+
+function gscInspectionGcsKey(contentRootName: string): string {
+  return siteSyncGcsKey(contentRootName, FILENAME);
+}
+
+function queueGscInspectionUpload(contentRootName: string, json: string): void {
+  if (!isGscGcsProduction()) return;
+  const client = gcsClient();
+  if (!client.available) return;
+  try {
+    client.debouncedUpload(
+      gscInspectionGcsKey(contentRootName),
+      Buffer.from(json, "utf-8"),
+      "application/json",
+      GSC_GCS_DEBOUNCE_MS,
+    );
+  } catch (err) {
+    log.error({ err, contentRootName }, "[GSC] Error queueing inspection sidecar upload");
+  }
+}
+
+export async function loadGscInspectionStoreFromBucket(
+  contentRootName: string,
+  opts?: { forceFromGcs?: boolean },
+): Promise<"gcs" | "local" | "empty"> {
+  const hasLocal = fs.existsSync(sidecarPath(contentRootName));
+  const forceFromGcs = Boolean(opts?.forceFromGcs);
+  // Boot / normal reload: production only. Dev can opt in via forceFromGcs (pull prod cache).
+  if (!isGscGcsProduction() && !forceFromGcs) {
+    log.info({ contentRootName }, "[GSC] Development mode, using local sidecar only");
+    return hasLocal ? "local" : "empty";
+  }
+
+  const client = gcsClient();
+  if (!client.available) {
+    client.initBootstrapFromEnv();
+  }
+  if (!client.available) {
+    log.info({ contentRootName, forceFromGcs }, "[GSC] GCS unavailable, using local sidecar");
+    return hasLocal ? "local" : "empty";
+  }
+
+  try {
+    const result = await client.downloadFirstExisting(gscUrlInspectionReadKeys(contentRootName));
+    if (!result) {
+      log.info({ contentRootName, forceFromGcs }, "[GSC] No inspection sidecar in bucket");
+      return hasLocal ? "local" : "empty";
+    }
+
+    let parsed: StoreFile;
+    try {
+      parsed = JSON.parse(result.data.toString("utf-8")) as StoreFile;
+    } catch (err) {
+      log.warn({ err, contentRootName }, "[GSC] Invalid inspection sidecar in bucket — starting empty");
+      memory.set(contentRootName, emptyStore());
+      return "empty";
+    }
+    if (!parsed || typeof parsed !== "object") {
+      log.warn({ contentRootName }, "[GSC] Invalid inspection sidecar in bucket — starting empty");
+      memory.set(contentRootName, emptyStore());
+      return "empty";
+    }
+
+    const store: StoreFile = {
+      records: parsed.records && typeof parsed.records === "object" ? parsed.records : {},
+    };
+    saveStore(contentRootName, store, { skipGcs: true });
+    log.info(
+      { contentRootName, count: Object.keys(store.records).length, forceFromGcs },
+      "[GSC] Loaded inspection sidecar from GCS",
+    );
+    return "gcs";
+  } catch (err) {
+    log.error({ err, contentRootName, forceFromGcs }, "[GSC] Error loading inspection sidecar from bucket");
+    return hasLocal ? "local" : "empty";
+  }
+}
+
+export async function loadGscInspectionStoresFromBucket(contentRootNames: string[]): Promise<void> {
+  await Promise.all(contentRootNames.map((name) => loadGscInspectionStoreFromBucket(name)));
+}
+
+export async function reloadGscInspectionStoreFromBucket(
+  contentRootName: string,
+  opts?: { forceFromGcs?: boolean },
+): Promise<"gcs" | "local" | "empty"> {
+  memory.delete(contentRootName);
+  const source = await loadGscInspectionStoreFromBucket(contentRootName, opts);
+  if (source !== "gcs") loadStore(contentRootName);
+  return source;
+}
+
+/** Dev-only helper: pull production sidecar into local .cache (never uploads). */
+export async function pullGscInspectionStoreFromBucket(
+  contentRootName: string,
+): Promise<{ source: "gcs" | "local" | "empty"; recordCount: number; gcsKey: string }> {
+  const gcsKey = gscInspectionGcsKey(contentRootName);
+  const source = await reloadGscInspectionStoreFromBucket(contentRootName, { forceFromGcs: true });
+  const store = loadStore(contentRootName);
+  return {
+    source,
+    recordCount: Object.keys(store.records).length,
+    gcsKey,
+  };
+}
+
+export interface ReuploadGscInspectionResult {
+  success: boolean;
+  uploaded: boolean;
+  gcsKey: string;
+  reason?: string;
+}
+
+export async function forceUploadGscInspectionToBucket(
+  contentRootName: string,
+): Promise<ReuploadGscInspectionResult> {
+  const gcsKey = gscInspectionGcsKey(contentRootName);
+  if (!isGscGcsProduction()) {
+    return {
+      success: false,
+      uploaded: false,
+      gcsKey,
+      reason: "GCS sync only runs in production (NODE_ENV=production).",
+    };
+  }
+  const client = gcsClient();
+  if (!client.available) {
+    client.initBootstrapFromEnv();
+  }
+  if (!client.available) {
+    return {
+      success: false,
+      uploaded: false,
+      gcsKey,
+      reason: "GCS is unavailable — missing GCS_BUCKET_NAME or credentials.",
+    };
+  }
+  const store = loadStore(contentRootName);
+  const filePath = sidecarPath(contentRootName);
+  if (!fs.existsSync(filePath) && Object.keys(store.records).length === 0) {
+    return {
+      success: false,
+      uploaded: false,
+      gcsKey,
+      reason: "No local Search Console inspection cache found to upload.",
+    };
+  }
+  saveStore(contentRootName, store, { skipGcs: true });
+  const json = JSON.stringify(store, null, 2) + "\n";
+  await client.upload(gcsKey, Buffer.from(json, "utf-8"), "application/json");
+  log.info({ contentRootName, gcsKey }, "[GSC] Re-uploaded inspection sidecar to GCS via admin action");
+  return { success: true, uploaded: true, gcsKey };
 }
 
 export function getRecord(contentRootName: string, loc: string): GscInspectionRecord | undefined {
@@ -302,6 +498,14 @@ export function isFresh(record: GscInspectionRecord | undefined, now = Date.now(
   return now - at < FRESH_MS;
 }
 
+/** Missing, unreadable, or older than 7 days — eligible for bulk Stale inspect. */
+export function isStale(record: GscInspectionRecord | undefined, now = Date.now()): boolean {
+  if (!record?.inspectedAt) return true;
+  const at = new Date(record.inspectedAt).getTime();
+  if (Number.isNaN(at)) return true;
+  return now - at >= STALE_MS;
+}
+
 export function toUrlPath(raw: string): string {
   try {
     if (/^https?:\/\//i.test(raw)) {
@@ -438,6 +642,7 @@ function emptyBucket(): GscCoverageBucket {
 export function buildSummary(
   records: Record<string, GscInspectionRecord>,
   debugUrls: DebugSitemapUrl[],
+  now = Date.now(),
 ): GscInspectionSummary {
   const byContentType: Record<string, GscCoverageBucket> = {};
   const notIndexedRows: GscExceptionRow[] = [];
@@ -448,6 +653,7 @@ export function buildSummary(
   let notIndexed = 0;
   let errors = 0;
   let neverChecked = 0;
+  let stale = 0;
   let notOnSitemap = 0;
   let newest = 0;
   let newestInspectedAt: string | null = null;
@@ -478,6 +684,7 @@ export function buildSummary(
     sitemapCount += 1;
     bucket.inSitemap += 1;
     const rec = records[url.loc];
+    if (isStale(rec, now)) stale += 1;
     if (!rec) {
       neverChecked += 1;
       bucket.neverChecked += 1;
@@ -517,6 +724,7 @@ export function buildSummary(
     notIndexed,
     errors,
     neverChecked,
+    stale,
     notOnSitemap,
     newestInspectedAt,
     byContentType,

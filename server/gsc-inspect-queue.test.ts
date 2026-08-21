@@ -9,6 +9,7 @@ import {
   GscInspectAlreadyRunningError,
   enqueueGscInspects,
   getGscInspectQueueStats,
+  cancelGscInspects,
   resetGscInspectQueueForTests,
   selectGscInspectLocs,
   setGscInspectQueueHooksForTests,
@@ -96,6 +97,26 @@ describe("gsc-inspect-queue", () => {
     });
     expect(all.locs).toEqual([publicA, publicB, publicC]);
     expect(all.eligible).toBe(3);
+  });
+
+  it("stale includes missing and 8-day-old rows and excludes 1-day-old", () => {
+    const now = Date.now();
+    upsertRecord("site_demo", publicA, {
+      inspectedAt: new Date(now - 8 * 24 * 60 * 60 * 1000).toISOString(),
+      verdict: "PASS",
+    });
+    upsertRecord("site_demo", publicB, {
+      inspectedAt: new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString(),
+      verdict: "PASS",
+    });
+
+    const stale = selectGscInspectLocs({
+      mode: "stale",
+      contentRootName: "site_demo",
+      debugUrls: sampleUrls,
+    });
+    expect(stale.locs).toEqual([publicA, publicC]);
+    expect(stale.eligible).toBe(2);
   });
 
   it("excludes drafts, preview paths, and URLs not in the sitemap", () => {
@@ -219,6 +240,49 @@ describe("gsc-inspect-queue", () => {
     expect(stats.completed).toBe(2);
   });
 
+  it("cancelGscInspects drops remaining URLs and keeps completed rows", async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const calls: string[] = [];
+    setGscInspectQueueHooksForTests({
+      delayFn: async () => {},
+      inspectOneFn: async ({ loc }) => {
+        calls.push(loc);
+        if (loc === publicA) await firstGate;
+        return { requested: loc, loc, record: { inspectedAt: "t" } };
+      },
+    });
+
+    enqueueGscInspects({
+      mode: "all",
+      contentRoot: "site_demo",
+      contentRootName: "site_demo",
+      debugUrls: sampleUrls,
+    });
+
+    await vi.waitFor(() => {
+      expect(getGscInspectQueueStats().active).toBe(publicA);
+    });
+
+    const cancelled = cancelGscInspects();
+    expect(cancelled.stopped).toBe(true);
+    expect(cancelled.queue.running).toBe(false);
+    expect(cancelled.queue.aborted).toBe("cancelled");
+    expect(cancelled.queue.pending).toBe(0);
+
+    releaseFirst();
+    await waitUntilIdle();
+
+    expect(calls).toEqual([publicA]);
+    expect(getGscInspectQueueStats().aborted).toBe("cancelled");
+    expect(getGscInspectQueueStats().running).toBe(false);
+
+    const idle = cancelGscInspects();
+    expect(idle.stopped).toBe(false);
+  });
+
   it("waits the inspect interval between Google calls", async () => {
     resetGscInspectQueueForTests();
     vi.useFakeTimers();
@@ -251,7 +315,7 @@ describe("gsc-inspect-queue", () => {
     expect(getGscInspectQueueStats().running).toBe(false);
   });
 
-  it("uses force inspect for all and not for never", async () => {
+  it("uses force inspect for all and not for never or stale", async () => {
     const forces: boolean[] = [];
     setGscInspectQueueHooksForTests({
       delayFn: async () => {},
@@ -263,6 +327,16 @@ describe("gsc-inspect-queue", () => {
 
     enqueueGscInspects({
       mode: "never",
+      contentRoot: "site_demo",
+      contentRootName: "site_demo",
+      debugUrls: sampleUrls,
+    });
+    await waitUntilIdle();
+    expect(forces.every((f) => f === false)).toBe(true);
+
+    forces.length = 0;
+    enqueueGscInspects({
+      mode: "stale",
       contentRoot: "site_demo",
       contentRootName: "site_demo",
       debugUrls: sampleUrls,

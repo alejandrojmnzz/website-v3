@@ -288,11 +288,11 @@ describe("lead form schema extras", () => {
     expect(parsed.consent).toEqual({ marketing: true, terms: true });
   });
 
-  it("keeps extra consent booleans on the site schema used at runtime", async () => {
-    const { leadFormDataSchema: siteSchema } = await import(
-      "../site_4geeks-com/component-registry/_common/schema"
+  it("keeps extra consent booleans on the shared _common schema", async () => {
+    const { leadFormDataSchema: sharedSchema } = await import(
+      "./component-registry/_common/schema"
     );
-    const parsed = siteSchema.parse({
+    const parsed = sharedSchema.parse({
       consent: { marketing: true, test: true },
     });
     expect(parsed.consent).toEqual({ marketing: true, test: true });

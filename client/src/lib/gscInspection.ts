@@ -34,6 +34,7 @@ export interface GscInspectionSummary {
   notIndexed: number;
   errors: number;
   neverChecked: number;
+  stale: number;
   notOnSitemap: number;
   newestInspectedAt: string | null;
   byContentType: Record<string, GscCoverageBucket>;
@@ -94,8 +95,8 @@ export function gscPermissionLabel(level: string): string {
   }
 }
 
-export type GscInspectMode = "never" | "all";
-export type GscInspectAborted = "permission_denied" | null;
+export type GscInspectMode = "never" | "stale" | "all";
+export type GscInspectAborted = "permission_denied" | "cancelled" | null;
 
 export interface GscInspectQueueStats {
   pending: number;
@@ -127,6 +128,13 @@ export function gscHeadline(record: GscInspectionRecord | null | undefined, reso
   if (coverage.includes("submitted and indexed") || coverage === "indexed") return "Indexed";
   if (record.error) return "Error";
   return "Not indexed";
+}
+
+export function gscInspectModeLabel(mode: GscInspectMode | null | undefined): string {
+  if (mode === "never") return "never inspected";
+  if (mode === "stale") return "stale";
+  if (mode === "all") return "all";
+  return "";
 }
 
 export function isGscPropertyAccessDenied(message: string | undefined | null): boolean {

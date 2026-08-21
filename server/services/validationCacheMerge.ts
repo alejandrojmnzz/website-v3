@@ -14,6 +14,8 @@ import type {
 } from "../../scripts/validation/shared/types";
 import { entryKeyFromContentFile } from "../../scripts/validation/shared/entryKey";
 import { getCanonicalUrl } from "../../scripts/validation/shared/canonicalUrls";
+import { isLiveRedirectSource } from "../../scripts/validation/shared/draftFiles";
+import { formatSitePath } from "../../shared/formatSitePath";
 import {
   getValidatorRunClass,
   scopesForValidator,
@@ -107,11 +109,22 @@ function filePathToEntryKey(
   const contentType = typeMap[folder] ?? folder.replace(/s$/, "");
   const slug = m[2]!;
   const localePart = m[3]!;
-  const locale = localePart.includes(".")
-    ? localePart.split(".").pop()!
-    : localePart;
-  if (locale === "_common") return null;
-  return `${contentType}/${slug}/${locale}`;
+  if (localePart.includes(".")) {
+    const parts = localePart.split(".");
+    const locale = parts[parts.length - 1]!;
+    const variant = parts.slice(0, -1).join(".");
+    if (locale === "_common") return null;
+    // Template: single.es.yml vs single.draft.es.yml
+    if (variant === "single" || variant === "") {
+      return `${contentType}/${slug}/${locale}`;
+    }
+    if (variant.startsWith("single.")) {
+      return `${contentType}/${slug}/${locale}@${variant.slice("single.".length)}`;
+    }
+    return `${contentType}/${slug}/${locale}@${variant}`;
+  }
+  if (localePart === "_common") return null;
+  return `${contentType}/${slug}/${localePart}`;
 }
 
 /** Build targets + scopes for a raw ValidationIssue from a validator run. */
@@ -155,7 +168,7 @@ export function issueToStored(
     }
   }
 
-  // Fan-out: parse second file path from REDIRECT_CONFLICT messages
+  // Fan-out: parse second file path from REDIRECT_CONFLICT messages (live claimants only)
   if (issue.code === "REDIRECT_CONFLICT" || issue.code === "REDIRECT_OVERLAP") {
     const claimed = issue.message.match(/claimed by both "([^"]+)" and "([^"]+)"/);
     const conflicts = issue.message.match(/conflicts with "([^"]+)"/);
@@ -165,16 +178,27 @@ export function issueToStored(
         ? [issue.file, conflicts[1]!].filter(Boolean) as string[]
         : [];
     for (const p of paths) {
-      const ek = filePathToEntryKey(p, contentFiles);
+      // Strip optional " (live)" suffix from labeled messages
+      const rawPath = p.replace(/\s*\(live\)\s*$/i, "").trim();
+      const match = contentFiles.find(
+        (f) =>
+          isLiveRedirectSource(f) &&
+          (f.filePath === rawPath ||
+            f.filePath.endsWith(rawPath) ||
+            rawPath.endsWith(f.filePath) ||
+            formatSitePath(f.filePath) === formatSitePath(rawPath)),
+      );
+      if (!match) continue;
+      const ek = entryKeyFromContentFile(match);
+      if (ek.includes("@")) continue;
       if (ek && !targets.some((t) => t.type === "entry" && t.entryKey === ek)) {
-        const file = contentFiles.find((f) => entryKeyFromContentFile(f) === ek);
         targets.push({
           type: "entry",
           entryKey: ek,
-          url: file ? getCanonicalUrl(file) : undefined,
-          file: p,
-          slug: file?.slug,
-          contentType: file?.type,
+          url: getCanonicalUrl(match),
+          file: match.filePath,
+          slug: match.slug,
+          contentType: match.type,
         });
       }
     }
@@ -271,6 +295,8 @@ export function mergePartialPageCacheEntry(
   };
 }
 
+export const CACHE_FRESHNESS_MAX_AGE_SECONDS = 86400;
+
 export function isUrlStaleForFullRun(
   entry: PageCacheEntry | undefined,
   maxAgeSeconds: number,
@@ -281,6 +307,25 @@ export function isUrlStaleForFullRun(
   const ageSec = (nowMs - DateParseSafe(fullAt)) / 1000;
   if (Number.isNaN(ageSec)) return true;
   return ageSec > maxAgeSeconds;
+}
+
+export function summarizeCacheFreshness(
+  entries: Iterable<PageCacheEntry | undefined>,
+  maxAgeSeconds: number = CACHE_FRESHNESS_MAX_AGE_SECONDS,
+  nowMs: number = Date.now(),
+): { fresh: number; stale: number; total: number; max_age_seconds: number } {
+  let fresh = 0;
+  let stale = 0;
+  for (const entry of entries) {
+    if (isUrlStaleForFullRun(entry, maxAgeSeconds, nowMs)) stale += 1;
+    else fresh += 1;
+  }
+  return {
+    fresh,
+    stale,
+    total: fresh + stale,
+    max_age_seconds: maxAgeSeconds,
+  };
 }
 
 function DateParseSafe(iso: string): number {

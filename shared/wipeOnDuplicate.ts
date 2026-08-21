@@ -63,6 +63,17 @@ export function resolveBoundEcommerceProductsPaths(
   return paths;
 }
 
+/** Staff Ecommerce tab: current variant binds cta-tracking or ecommerce-products. */
+export function showEcommerceEditorTab(
+  fieldEditors: Record<string, string>,
+  variant?: string,
+): boolean {
+  return (
+    resolveBoundCtaPaths(fieldEditors, variant).length > 0 ||
+    resolveBoundEcommerceProductsPaths(fieldEditors, variant).length > 0
+  );
+}
+
 function deleteConversionNames(
   value: unknown,
   pathPrefix: string,

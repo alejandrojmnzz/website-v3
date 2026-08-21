@@ -16,7 +16,13 @@ import { collectTouchedSectionIndexes } from "@shared/validateSectionIdentity";
 import { validateFaqListingSections } from "@shared/validateFaqListing";
 import {
   evaluateLiveEntrySeoAndRequiredFields,
+  type LiveSeoGateFailure,
 } from "./live-entry-seo-gate";
+import {
+  getEntryContentDir,
+  isTemplateVersioningSlug,
+  listLiveLocales,
+} from "./draft-entry";
 import {
   clampSchemaOrgSectionsLeading,
   isSchemaOrgSection,
@@ -52,6 +58,13 @@ import { getDatabaseName, getLookupKey, getFieldMapping, isValidType, getAllType
 import { databaseManager, DatabaseManager } from "./database";
 import { regenerateSectionIds } from "./utils/regenerateSectionIds";
 import { canonicalSectionId, sectionIdCandidates, sectionMatchesId } from "./utils/sectionIdentity";
+import {
+  invalidSectionIndexMessage,
+  isInvalidSectionIndexError,
+  keepSectionAfterTypelessScrub,
+  sectionIndexFromUpdateFieldPath,
+  sectionSlotExists,
+} from "@shared/sectionLeftovers";
 import {
   fanOutStructuralOpsToSiblings,
   cleanSectionIdFromEntryOverlays,
@@ -117,8 +130,14 @@ function identityValidateOptsForWrite(opts: {
 }import {
   isEntryDetached,
   isSharedLayoutType,
+  isTemplateVersioningSlug,
   rejectAttachedStructuralEdit,
 } from "./shared-layout-entry";
+import {
+  applyEditorialUpdatedAtToData,
+  stampAttachedEntryLocaleFiles,
+  type EditorialOp,
+} from "./editorial-updated-at";
 import {
   DEFAULT_DRAFT_VARIANT,
   usesDraftFirstCreate,
@@ -140,6 +159,57 @@ import {
   isPublishedAtEmpty,
 } from "./published-at";
 import { FIELD_OVERRIDES_KEY } from "./field-overrides";
+
+function cloneYamlData(data: Record<string, unknown>): Record<string, unknown> {
+  try {
+    return structuredClone(data);
+  } catch {
+    return JSON.parse(JSON.stringify(data)) as Record<string, unknown>;
+  }
+}
+
+function stampLocaleYamlBeforeWrite(opts: {
+  data: Record<string, unknown>;
+  previous: Record<string, unknown>;
+  operations: EditOperation[];
+  contentType: string;
+  slug: string;
+  locale?: string;
+  filePath: string;
+  contentRoot?: string;
+  author?: string;
+  ci?: ContentIndex;
+}): void {
+  const result = applyEditorialUpdatedAtToData({
+    data: opts.data,
+    previous: opts.previous,
+    operations: opts.operations as EditorialOp[],
+    contentType: opts.contentType,
+    slug: opts.slug,
+    contentRoot: opts.contentRoot,
+  });
+  if (
+    result.kind === "now" &&
+    result.iso &&
+    opts.locale &&
+    path.basename(opts.filePath).startsWith("single.")
+  ) {
+    const slugs = (opts.ci ?? contentIndex).listContentSlugs(
+      opts.contentType as import("./content-index").ContentType,
+    );
+    stampAttachedEntryLocaleFiles({
+      contentType: opts.contentType,
+      locale: opts.locale,
+      iso: result.iso,
+      slugs,
+      contentRoot: opts.contentRoot,
+      author: opts.author,
+      skipIfDetached: (entrySlug) =>
+        isTemplateVersioningSlug(entrySlug) ||
+        isEntryDetached(opts.contentType, entrySlug, opts.contentRoot),
+    });
+  }
+}
 
 /** After duplicate copy: never keep source published_at; stamp if the copy is immediately live. */
 function applyPublishedAtAfterDuplicate(
@@ -308,6 +378,10 @@ function applyOperation(
   const result: { clearedFields?: ClearedField[]; insertedSectionIndex?: number } = {};
   switch (operation.action) {
     case "update_field": {
+      const sectionIdx = sectionIndexFromUpdateFieldPath(operation.path);
+      if (sectionIdx !== null && !sectionSlotExists(content, sectionIdx)) {
+        throw new Error(invalidSectionIndexMessage(sectionIdx));
+      }
       setValueAtPath(content, operation.path, operation.value);
       break;
     }
@@ -340,7 +414,8 @@ function applyOperation(
       if (operation.path === "sections" && itemToInsert && typeof itemToInsert === "object") {
         const raw = itemToInsert as Record<string, unknown>;
         const sectionType = String(raw.type ?? "");
-        const editors = loadAllFieldEditors()[sectionType] ?? {};
+        const editors =
+          loadAllFieldEditors(opts?.contentRoot)[sectionType] ?? {};
         const { section: wiped, cleared } = wipeSectionOnDuplicate(raw, editors);
         wiped.section_id = generateSectionId((wiped.type as string) || "section");
         if (!wiped.paddingY) {
@@ -932,14 +1007,10 @@ export async function editContent(request: ContentEditRequest): Promise<{
             }
             forwardedTemplateOps = true;
 
-            // Drop layout-only stubs previously written into the entry file by the
-            // buggy update_field path (no type / section identity — ignored at load).
+            // Drop identity-less stubs previously written into the entry overlay.
             if (Array.isArray(localeData.sections)) {
-              localeData.sections = (localeData.sections as Record<string, unknown>[]).filter(
-                (s) =>
-                  !!s &&
-                  typeof s === "object" &&
-                  !!(s.type || s.section_id || s.id || s._remove || s._perEntrySource),
+              localeData.sections = (localeData.sections as unknown[]).filter((s) =>
+                keepSectionAfterTypelessScrub(s, false),
               );
             }
           }
@@ -1020,6 +1091,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
 
           const rawTemplate = fs.readFileSync(templateFilePath, "utf-8");
           const templateData = (contentIndex.safeYamlLoad(rawTemplate) as Record<string, unknown>) || {};
+          const previousTemplateData = cloneYamlData(templateData);
           const templateSections = Array.isArray(templateData.sections)
             ? (templateData.sections as Record<string, unknown>[])
             : [];
@@ -1040,6 +1112,18 @@ export async function editContent(request: ContentEditRequest): Promise<{
           templateSections.splice(tplTo, 0, moved);
           templateData.sections = templateSections;
 
+          stampLocaleYamlBeforeWrite({
+            data: templateData,
+            previous: previousTemplateData,
+            operations: [{ action: "reorder_sections", from: tplFrom, to: tplTo } as EditOperation],
+            contentType,
+            slug,
+            locale,
+            filePath: templateFilePath,
+            contentRoot,
+            author: request.author,
+            ci: contentIndex,
+          });
           const updatedYaml = safeYamlDump(templateData, {
             lineWidth: -1,
             noRefs: true,
@@ -1146,6 +1230,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
     }
 
     // Apply all operations to the locale data (this is what gets saved)
+    const previousLocaleData = cloneYamlData(localeData);
     const clearedFields: ClearedField[] = [];
     const skipIdentityValidationIndexes = new Set<number>();
     for (const operation of resolvedOperations) {
@@ -1161,11 +1246,15 @@ export async function editContent(request: ContentEditRequest): Promise<{
       }
     }
 
-    // Strip null/non-object entries from sections before writing — a null section
-    // entry (produced by a blank YAML list item) causes a server crash at load time.
+    // Strip null/non-object entries, then typeless leftovers on files that own
+    // full structure. Attached overlays keep identity patches (`section_id` / `_remove`).
     if (Array.isArray(localeData.sections)) {
-      localeData.sections = (localeData.sections as unknown[]).filter(
-        (s): s is Record<string, unknown> => s != null && typeof s === "object",
+      const ownsFullStructure =
+        path.basename(filePath).startsWith("single.") ||
+        isEntryDetached(contentType, slug, contentRoot) ||
+        !isSharedLayoutType(contentType, contentRoot);
+      localeData.sections = (localeData.sections as unknown[]).filter((s) =>
+        keepSectionAfterTypelessScrub(s, ownsFullStructure),
       );
     }
 
@@ -1209,6 +1298,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
         string,
         unknown
       >;
+      const gateTouchedPaths = touchedPathsFromOperations(resolvedOperations);
       const seoGateErr = evaluateLiveEntrySeoAndRequiredFields({
         contentType,
         slug,
@@ -1216,6 +1306,8 @@ export async function editContent(request: ContentEditRequest): Promise<{
         pageData: mergedForGate,
         contentRoot,
         mode: "live_update",
+        intent: "micro",
+        touchedPaths: gateTouchedPaths,
         isDraftWrite: false,
       });
       if (seoGateErr) {
@@ -1229,6 +1321,18 @@ export async function editContent(request: ContentEditRequest): Promise<{
     }
 
     // Write locale data back to file (without _common.yml content)
+    stampLocaleYamlBeforeWrite({
+      data: localeData,
+      previous: previousLocaleData,
+      operations: resolvedOperations,
+      contentType,
+      slug,
+      locale,
+      filePath,
+      contentRoot,
+      author: request.author,
+      ci,
+    });
     const updatedYaml = safeYamlDump(localeData, {
       lineWidth: -1, // Don't wrap lines
       noRefs: true,
@@ -1423,6 +1527,7 @@ function writeStructuralChangesToTemplate(opts: {
     const sectionsBefore = Array.isArray(templateData.sections)
       ? [...(templateData.sections as Record<string, unknown>[])]
       : [];
+    const previousTemplateData = cloneYamlData(templateData);
     const clearedFields: ClearedField[] = [];
 
     // Annotate remove ops with sectionId for sibling fan-out
@@ -1467,10 +1572,10 @@ function writeStructuralChangesToTemplate(opts: {
       }
     }
 
-    // Strip null/non-object entries from sections before writing
+    // Strip null/non-object entries and typeless leftovers (template owns full structure)
     if (Array.isArray(templateData.sections)) {
-      templateData.sections = (templateData.sections as unknown[]).filter(
-        (s): s is Record<string, unknown> => s != null && typeof s === "object",
+      templateData.sections = (templateData.sections as unknown[]).filter((s) =>
+        keepSectionAfterTypelessScrub(s, true),
       );
     }
 
@@ -1512,6 +1617,20 @@ function writeStructuralChangesToTemplate(opts: {
       }
     }
 
+    if (contentType && contentSlug) {
+      stampLocaleYamlBeforeWrite({
+        data: templateData,
+        previous: previousTemplateData,
+        operations: annotatedOps,
+        contentType,
+        slug: contentSlug,
+        locale: opts.locale,
+        filePath,
+        contentRoot,
+        author,
+        ci,
+      });
+    }
     const updatedYaml = safeYamlDump(templateData, {
       lineWidth: -1,
       noRefs: true,
@@ -1624,6 +1743,7 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
       entryData = (yaml.load(raw) as Record<string, unknown>) || {};
     }
 
+    const previousEntryData = cloneYamlData(entryData);
     for (const op of operations) {
       if (op.value === null || op.value === undefined) {
         delete entryData[op.path as string];
@@ -1641,6 +1761,7 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
     const ciGate = contentIndex;
     const commonForGate = ciGate.loadCommonData(contentType, slug) || {};
     const mergedForGate = deepMerge(commonForGate, entryData) as Record<string, unknown>;
+    const gateTouchedPaths = touchedPathsFromOperations(operations);
     const seoGateErr = evaluateLiveEntrySeoAndRequiredFields({
       contentType,
       slug,
@@ -1648,6 +1769,8 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
       pageData: mergedForGate,
       contentRoot: opts.contentRoot,
       mode: "live_update",
+      intent: "micro",
+      touchedPaths: gateTouchedPaths,
       isDraftWrite: false,
     });
     if (seoGateErr) {
@@ -1659,6 +1782,17 @@ function writeTopLevelFieldsToPerEntryFile(opts: {
       };
     }
 
+    stampLocaleYamlBeforeWrite({
+      data: entryData,
+      previous: previousEntryData,
+      operations,
+      contentType,
+      slug,
+      locale,
+      filePath: perEntryPath,
+      contentRoot: opts.contentRoot,
+      author,
+    });
     const dumped = safeYamlDump(entryData, { lineWidth: -1, noRefs: true });
     fs.writeFileSync(perEntryPath, dumped, "utf-8");
     markFileAsModified(perEntryPath, author, undefined, opts.contentRoot);
@@ -1697,16 +1831,29 @@ function writeEntryOverlayOps(opts: {
       const raw = fs.readFileSync(perEntryPath, "utf-8");
       entryData = (ci.safeYamlLoad(raw) as Record<string, unknown>) || {};
     }
+    const previousEntryData = cloneYamlData(entryData);
     for (const op of operations) {
       applyOperation(entryData, op, { contentRoot: opts.contentRoot, locale });
     }
     if (Array.isArray(entryData.sections)) {
-      entryData.sections = (entryData.sections as unknown[]).filter(
-        (s): s is Record<string, unknown> => s != null && typeof s === "object",
+      entryData.sections = (entryData.sections as unknown[]).filter((s) =>
+        keepSectionAfterTypelessScrub(s, false),
       );
     }
     const consentErr = getConsentKeyError(entryData);
     if (consentErr) return { success: false, error: consentErr };
+    stampLocaleYamlBeforeWrite({
+      data: entryData,
+      previous: previousEntryData,
+      operations,
+      contentType,
+      slug,
+      locale,
+      filePath: perEntryPath,
+      contentRoot: opts.contentRoot,
+      author,
+      ci,
+    });
     fs.writeFileSync(
       perEntryPath,
       safeYamlDump(entryData, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }),
@@ -1867,6 +2014,7 @@ function handleSharedTemplateEdit(opts: {
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
     const templateData = (ci.safeYamlLoad(raw) as Record<string, unknown>) || {};
+    const previousTemplateData = cloneYamlData(templateData);
 
     let templateDirty = false;
 
@@ -1920,6 +2068,18 @@ function handleSharedTemplateEdit(opts: {
         return { success: false, error: consentErrTemplate };
       }
 
+      stampLocaleYamlBeforeWrite({
+        data: templateData,
+        previous: previousTemplateData,
+        operations,
+        contentType,
+        slug,
+        locale,
+        filePath,
+        contentRoot,
+        author,
+        ci,
+      });
       const updatedYaml = safeYamlDump(templateData, {
         lineWidth: -1,
         noRefs: true,
@@ -1969,6 +2129,9 @@ function handleSharedTemplateEdit(opts: {
       }
     }
   } catch (err) {
+    if (isInvalidSectionIndexError(err)) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
     log.error("[editContent] Failed to write non-DB field changes to shared template:", err instanceof Error ? err.message : err);
   }
 
@@ -2006,6 +2169,64 @@ interface CommonEditRequest {
   author?: string;
   ci?: ContentIndex;
   contentRootName?: string;
+}
+
+/** Dot paths from update_field operations (for micro validation scope). */
+export function touchedPathsFromOperations(
+  operations: Array<{ action: string; path?: string }>,
+): string[] {
+  const paths: string[] = [];
+  for (const op of operations) {
+    if (op.action === "update_field" && typeof op.path === "string" && op.path) {
+      paths.push(op.path);
+    }
+  }
+  return paths;
+}
+
+/** Locales whose merged YAML (common + locale) must pass the live SEO gate after _common edits. */
+export function getCommonEditGateLocales(
+  contentType: string,
+  slug: string,
+  contentRootName?: string,
+): string[] {
+  const contentDir = getEntryContentDir(contentType, slug, contentRootName);
+  const templateMode = isTemplateVersioningSlug(slug);
+  const liveLocales = listLiveLocales(contentDir, templateMode);
+  return liveLocales.length > 0 ? liveLocales : [getDefaultLocale()];
+}
+
+/** Run live SEO gate for _common.yml writes against each live locale file. */
+export function evaluateCommonContentLiveGate(opts: {
+  contentType: string;
+  slug: string;
+  commonData: Record<string, unknown>;
+  ci: ContentIndex;
+  contentRootName?: string;
+  touchedPaths?: string[];
+}): LiveSeoGateFailure | null {
+  const { contentType, slug, commonData, ci, contentRootName, touchedPaths = [] } = opts;
+  for (const gateLocale of getCommonEditGateLocales(contentType, slug, contentRootName)) {
+    const localeLoaded = ci.loadLocaleData(contentType, slug, gateLocale);
+    const localeDataForGate =
+      (localeLoaded.data as Record<string, unknown> | null) || {};
+    const mergedForGate = deepMerge(commonData, localeDataForGate) as Record<
+      string,
+      unknown
+    >;
+    const seoGateErr = evaluateLiveEntrySeoAndRequiredFields({
+      contentType,
+      slug,
+      locale: gateLocale,
+      pageData: mergedForGate,
+      contentRoot: contentRootName,
+      mode: "live_update",
+      intent: "micro",
+      touchedPaths,
+    });
+    if (seoGateErr) return seoGateErr;
+  }
+  return null;
 }
 
 export function editCommonContent(request: CommonEditRequest): {
@@ -2054,21 +2275,13 @@ export function editCommonContent(request: CommonEditRequest): {
       }
     }
 
-    const defaultLocale = getDefaultLocale();
-    const localeLoaded = ci.loadLocaleData(contentType, slug, defaultLocale);
-    const localeDataForGate =
-      (localeLoaded.data as Record<string, unknown> | null) || {};
-    const mergedForGate = deepMerge(commonData, localeDataForGate) as Record<
-      string,
-      unknown
-    >;
-    const seoGateErr = evaluateLiveEntrySeoAndRequiredFields({
+    const seoGateErr = evaluateCommonContentLiveGate({
       contentType,
       slug,
-      locale: defaultLocale,
-      pageData: mergedForGate,
-      contentRoot: contentRootName,
-      mode: "live_update",
+      commonData,
+      ci,
+      contentRootName,
+      touchedPaths: touchedPathsFromOperations(operations),
     });
     if (seoGateErr) {
       return {
@@ -2241,7 +2454,7 @@ export async function renameContentSlug(
   input: RenameContentSlugInput,
 ): Promise<ContentLifecycleResult<{
   success: boolean; folderSlug: string; oldSlug: string; newSlug: string;
-  oldUrl: string; newUrl: string; locale: string; redirectCreated: boolean;
+  oldUrl: string; newUrl: string; locale: string; redirectCreated: boolean; routed: boolean;
 }>> {
   const { contentType, folderSlug, locale, newSlug, createRedirect = false, author } = input;
   const rootName = input.contentRootName ?? getDefaultContentRootName();
@@ -2301,6 +2514,16 @@ export async function renameContentSlug(
 
   const oldUrl = contentIndex.buildUrl(contentFolder, effectiveLocale, currentSlug);
   const newUrl = contentIndex.buildUrl(contentFolder, effectiveLocale, newSlug);
+  const existingOwner = contentIndex.resolveUrl(newUrl);
+  if (existingOwner && existingOwner.slug !== resolvedFolderSlug) {
+    return {
+      success: false,
+      statusCode: 409,
+      error:
+        `slug_already_owned_by_other_entry: "${newUrl}" resolves to ` +
+        `"${existingOwner.contentType}/${existingOwner.slug}"`,
+    };
+  }
   parsed.slug = newSlug;
 
   if (createRedirect) {
@@ -2315,6 +2538,7 @@ export async function renameContentSlug(
   fs.writeFileSync(localeFilePath, updated, "utf-8");
   markFileAsModified(`${rootName}/${contentFolder}/${resolvedFolderSlug}/${localeFile}`, author);
   contentIndex.refresh();
+  const routed = contentIndex.resolveUrl(newUrl)?.slug === resolvedFolderSlug;
   refreshSitemapEntry(contentType, resolvedFolderSlug, effectiveLocale);
   clearRedirectCache();
   invalidateContentCaches(contentType);
@@ -2323,7 +2547,7 @@ export async function renameContentSlug(
     success: true,
     data: {
       success: true, folderSlug: resolvedFolderSlug, oldSlug: currentSlug,
-      newSlug, oldUrl, newUrl, locale: effectiveLocale, redirectCreated: !!createRedirect,
+      newSlug, oldUrl, newUrl, locale: effectiveLocale, redirectCreated: !!createRedirect, routed,
     },
   };
 }
@@ -2915,7 +3139,7 @@ export async function createContentEntry(
           }
         }
 
-        const fieldEditorsByType = loadAllFieldEditors();
+        const fieldEditorsByType = loadAllFieldEditors(rootName);
         const clearedFields: ClearedField[] = [];
         for (const { file, parsed } of parsedDupFiles) {
           clearedFields.push(

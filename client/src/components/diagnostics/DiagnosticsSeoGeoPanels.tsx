@@ -4,8 +4,44 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 interface SeoOverview {
   intentDistribution: Record<string, Record<string, number>>;
-  clusters: { pillarUrl: string; clusterSlugs: string[]; clusterCount: number }[];
-  orphanPages: { slug: string; contentType: string; intent: string; filePath: string }[];
+  clusters: {
+    pillarUrl: string;
+    clusterSlugs: string[];
+    clusterCount: number;
+    keyword?: string | null;
+    locale?: string;
+    members?: {
+      id: string;
+      slug: string;
+      contentType: string;
+      locale: string;
+      path: string;
+      keyword?: string | null;
+      lastmod?: string | null;
+      updated_at?: string | null;
+    }[];
+  }[];
+  orphanPages: {
+    slug: string;
+    contentType: string;
+    intent: string;
+    filePath: string;
+    locale?: string;
+    pillar_path?: string;
+    reason?: "hub_not_found" | "hub_not_pillar";
+  }[];
+  clusterHealth?: {
+    emptyHubCount: number;
+    stats: Record<string, number>;
+    byContentType: Record<string, Record<string, number>>;
+    byLocale: Record<string, Record<string, number>>;
+  };
+  brokenClusterRefs?: Array<{
+    slug: string;
+    contentType: string;
+    locale: string;
+    reason: "hub_not_found" | "hub_not_pillar";
+  }>;
   featureCoverage: Record<string, number>;
   faqCoverage: { slug: string; contentType: string; locale: string; faqCount: number }[];
   schemaCoverage: Record<string, number>;

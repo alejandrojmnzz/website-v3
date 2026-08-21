@@ -7,6 +7,7 @@ import * as fs from "fs";
 import * as path from "path";
 import {
   formStateReadKeys,
+  gscUrlInspectionReadKeys,
   platformSitesYmlGcsKey,
   platformSitesYmlLocalFilename,
   platformSitesYmlReadKeys,
@@ -34,6 +35,7 @@ export const SYNC_ARTIFACT_KINDS = [
   "versioning-state",
   "form-state",
   "validation-cache",
+  "gsc-url-inspection",
   "runtime-issues",
   "sites-yml",
   "user-store",
@@ -208,6 +210,19 @@ export function resolveArtifactMeta(
         localPath: path.join(contentRootFor(folder), "validation-cache.json"),
       };
     }
+    case "gsc-url-inspection": {
+      const folder = siteFolder!;
+      return {
+        kind,
+        label: "Search Console inspection",
+        requiresSiteFolder: true,
+        confirmMutations: false,
+        contentType: "application/json",
+        gcsKey: siteSyncGcsKey(folder, SYNC_FILENAMES.gscUrlInspection),
+        readKeys: gscUrlInspectionReadKeys(folder),
+        localPath: path.join(process.cwd(), ".cache", folder, SYNC_FILENAMES.gscUrlInspection),
+      };
+    }
     case "runtime-issues": {
       const folder = siteFolder!;
       return {
@@ -236,6 +251,7 @@ export function artifactKindFromInventoryId(id: string): SyncArtifactKind | null
   if (id.startsWith("versioning-")) return "versioning-state";
   if (id.startsWith("form-state-")) return "form-state";
   if (id.startsWith("validation-cache-")) return "validation-cache";
+  if (id.startsWith("gsc-url-inspection-")) return "gsc-url-inspection";
   if (id.startsWith("runtime-issues-")) return "runtime-issues";
   return null;
 }
@@ -385,6 +401,26 @@ export async function uploadSyncArtifact(
           message: `Uploaded validation cache to ${result.gcsKey}.`,
         };
       }
+      case "gsc-url-inspection": {
+        const ctx = requireSite(siteFolder);
+        const { forceUploadGscInspectionToBucket } = await import("./gsc-url-inspection");
+        const result = await forceUploadGscInspectionToBucket(ctx.contentRootName);
+        if (!result.success) {
+          return {
+            success: false,
+            message: result.reason ?? "Could not upload Search Console inspection cache.",
+            gcsKey: result.gcsKey,
+            reason: result.reason,
+            uploaded: false,
+          };
+        }
+        return {
+          success: true,
+          uploaded: true,
+          gcsKey: result.gcsKey,
+          message: `Uploaded Search Console inspection cache to ${result.gcsKey}.`,
+        };
+      }
       case "runtime-issues": {
         const ctx = requireSite(siteFolder);
         const { reuploadRuntimeIssuesToBucket } = await import("./runtime-issues-store");
@@ -531,6 +567,24 @@ export async function downloadSyncArtifact(
             source === "gcs"
               ? "Validation cache refreshed from GCS."
               : "Validation cache refreshed from local file.",
+        };
+      }
+      case "gsc-url-inspection": {
+        const ctx = requireSite(siteFolder);
+        const { reloadGscInspectionStoreFromBucket } = await import("./gsc-url-inspection");
+        // In development, Cloud Sync download should still pull the production sidecar.
+        const forceFromGcs = process.env.NODE_ENV !== "production";
+        const source = await reloadGscInspectionStoreFromBucket(ctx.contentRootName, {
+          forceFromGcs,
+        });
+        return {
+          success: true,
+          source: source === "empty" ? "local" : source,
+          gcsKey: meta.gcsKey,
+          message:
+            source === "gcs"
+              ? "Search Console inspection cache refreshed from GCS."
+              : "Search Console inspection cache refreshed from local file.",
         };
       }
       case "runtime-issues": {

@@ -2,22 +2,17 @@
  * Public HTML 200/404 for the SPA catch-all.
  * Uses the per-request site content index (same catalog as redirects), not the
  * global contentIndex singleton.
+ *
+ * Locale-home aliases (`/`, `/en`, `/es`, `/us`) are not static-200 — they 301
+ * to canonical homes. See shared/public-app-routes.ts.
  */
 
-export const STATIC_HTML_ROUTES = new Set([
-  "/",
-  "/en",
-  "/en/",
-  "/es",
-  "/es/",
-  "/en/apply",
-  "/es/aplica",
-  "/terms-conditions",
-  "/terminos-condiciones",
-  "/privacy-policy",
-  "/politica-privacidad",
-  "/preview-frame",
-]);
+import {
+  buildStaticHtmlRoutesSet,
+  isPublicHtmlStaticPath,
+} from "@shared/public-app-routes";
+
+export const STATIC_HTML_ROUTES = buildStaticHtmlRoutesSet();
 
 const STATIC_PREFIXES = ["/private/", "/api/"];
 
@@ -32,7 +27,7 @@ function cleanPath(url: string): string {
 /** True when this path should be HTTP 200 without asking the content index. */
 export function isStaticPublicHtmlRoute(url: string): boolean {
   const path = cleanPath(url);
-  if (STATIC_HTML_ROUTES.has(path)) return true;
+  if (isPublicHtmlStaticPath(path) || STATIC_HTML_ROUTES.has(path)) return true;
   for (const prefix of STATIC_PREFIXES) {
     if (path.startsWith(prefix)) return true;
   }

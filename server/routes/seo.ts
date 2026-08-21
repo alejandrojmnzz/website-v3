@@ -126,6 +126,7 @@ import {
   resolveLayout,
   listAvailableMenus,
   getDirectory,
+  resolveEntryUpdatedAt,
 } from "../content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveAllTemplateVars } from "../resolve-template-vars";
@@ -219,6 +220,7 @@ import {
   ValidationFixRunState,
   ValidationFixRunLogEntry,
   FixerItemStatus,
+  requireStaffSession,
 } from "./_helpers";
 import { child } from "../logger";
 import {
@@ -227,12 +229,14 @@ import {
   getGscConfig,
   getRecord,
   gscPropertyAccessFromRecords,
+  isStale,
   hasMainSeoKeyword,
   homepageLocFromDebug,
   inspectAndStore,
   isPreviewLoc,
   listGscSites,
   loadStore,
+  pullGscInspectionStoreFromBucket,
   resolvePublicInspectLoc,
   sitemapHostMatchesGsc,
   suggestedGscSiteUrl,
@@ -240,10 +244,14 @@ import {
 import {
   enqueueGscInspects,
   getGscInspectQueueStats,
+  cancelGscInspects,
   GscInspectAlreadyRunningError,
   type GscInspectMode,
 } from "../gsc-inspect-queue";
+import { renderHubHtml } from "../render-hub-html";
+import { findMissingMemberLinks } from "../cluster-hub-links";
 import { readFunnelBlockFromFile, commonYmlPath } from "../funnel-fields";
+import { toSitemapLastmod } from "@shared/normalizeFlexibleDate";
 
 /** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
 function getCI(res: Response): typeof contentIndex {
@@ -262,6 +270,33 @@ function getSiteSitemapCtx(res: Response): ActiveSiteCtx | undefined {
   const site = res.locals.site as SiteContext | undefined;
   if (!site?.contentIndex || !site?.contentRootName || !site?.database) return undefined;
   return toActiveSiteCtx(site);
+}
+
+function clusterMemberFromIndex(
+  id: string,
+  row?: {
+    slug?: string;
+    content_type?: string;
+    locale?: string;
+    path?: string;
+    main_keyword?: string | null;
+    file?: string;
+  },
+) {
+  const parts = id.split("/");
+  const contentType = row?.content_type || parts[0] || "";
+  const locale = row?.locale || parts[parts.length - 1] || "";
+  const slug =
+    row?.slug || (parts.length >= 3 ? parts.slice(1, -1).join("/") : parts[1] || id);
+  return {
+    id,
+    slug,
+    contentType,
+    locale,
+    path: row?.path || "",
+    keyword: row?.main_keyword ?? null,
+    file: row?.file || "",
+  };
 }
 
 function metaRecord(data: Record<string, unknown> | null | undefined): Record<string, unknown> {
@@ -472,6 +507,65 @@ export function registerSeoRoutes(app: Express): void {
     res.json(getGscInspectQueueStats());
   });
 
+  app.post("/api/debug/gsc-inspection/cancel", async (req, res) => {
+    try {
+      const auth = await requireCapability(req, res, "seo_edit");
+      if (!auth.authorized) return;
+
+      const result = cancelGscInspects();
+      res.json({
+        success: true,
+        stopped: result.stopped,
+        queue: result.queue,
+        message: result.stopped
+          ? "Inspect stopped. Rows already written were kept. Use Never inspected to continue missing URLs."
+          : "No inspect job was running.",
+      });
+    } catch (err) {
+      log.error({ err }, "GSC inspect cancel failed");
+      res.status(500).json({ error: err instanceof Error ? err.message : "Cancel failed" });
+    }
+  });
+
+  /** Dev-only: overwrite local .cache sidecar with the production GCS copy (no Google inspect calls). */
+  app.post("/api/debug/gsc-inspection/pull-from-gcs", async (req, res) => {
+    try {
+      if (process.env.NODE_ENV === "production") {
+        res.status(403).json({
+          error: "Pulling the production Search Console cache is only available in development.",
+          code: "dev_only",
+        });
+        return;
+      }
+
+      const auth = await requireCapability(req, res, "seo_edit");
+      if (!auth.authorized) return;
+
+      const contentRootName = getContentRootName(res);
+      const result = await pullGscInspectionStoreFromBucket(contentRootName);
+      if (result.source !== "gcs") {
+        res.status(404).json({
+          error:
+            result.source === "empty"
+              ? "No Search Console inspection sidecar found in GCS (and no local file)."
+              : "Could not download from GCS — kept or fell back to the local sidecar. Check GCS_BUCKET_NAME and credentials.",
+          code: "gcs_pull_failed",
+          ...result,
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        ...result,
+        message: `Loaded ${result.recordCount} inspection row(s) from ${result.gcsKey} into local .cache.`,
+      });
+    } catch (err) {
+      log.error({ err }, "GSC pull-from-gcs failed");
+      res.status(500).json({ error: err instanceof Error ? err.message : "Pull from GCS failed" });
+    }
+  });
+
   app.post("/api/debug/gsc-inspection/enqueue", async (req, res) => {
     try {
       const auth = await requireCapability(req, res, "seo_edit");
@@ -488,8 +582,8 @@ export function registerSeoRoutes(app: Express): void {
       }
 
       const mode = req.body?.mode as unknown;
-      if (mode !== "never" && mode !== "all") {
-        res.status(400).json({ error: "mode must be \"never\" or \"all\"" });
+      if (mode !== "never" && mode !== "stale" && mode !== "all") {
+        res.status(400).json({ error: "mode must be \"never\", \"stale\", or \"all\"" });
         return;
       }
 
@@ -714,26 +808,51 @@ export function registerSeoRoutes(app: Express): void {
         }
       }
 
-      const { loadSeoIndex } = await import("../seo-index");
-      const seoIndex = loadSeoIndex(getContentRoot(res));
-      const clusters = Object.entries(seoIndex.clusters).map(([hubId, cluster]) => ({
-        hubId,
-        pillarUrl: cluster.path,
-        clusterSlugs: cluster.members.map((id) => id.split("/")[1] || id),
-        memberIds: cluster.members,
-        clusterCount: cluster.members.length,
-      }));
-      const uniqueOrphans = seoIndex.orphans.map((id) => {
-        const row = seoIndex.entries[id];
-        const parts = id.split("/");
+      const contentRoot = getContentRoot(res);
+      const { loadSeoIndex, computeClusterHealth, listBrokenClusterRefs } = await import("../seo-index");
+      const seoIndex = loadSeoIndex(contentRoot);
+      const clusterHealth = computeClusterHealth(seoIndex, getCI(res), contentRoot);
+      const brokenClusterRefs = listBrokenClusterRefs(seoIndex, getCI(res));
+      const clusters = Object.entries(seoIndex.clusters).map(([hubId, cluster]) => {
+        const hub = seoIndex.entries[hubId];
+        const keyword =
+          typeof hub?.main_keyword === "string" && hub.main_keyword.trim()
+            ? hub.main_keyword.trim()
+            : null;
+        const members = cluster.members.map((id) => {
+          const base = clusterMemberFromIndex(id, seoIndex.entries[id]);
+          const updatedAt = resolveEntryUpdatedAt({
+            contentType: base.contentType,
+            slug: base.slug,
+            locale: base.locale,
+            contentRoot,
+          });
+          return {
+            ...base,
+            updated_at: updatedAt,
+            lastmod: toSitemapLastmod(updatedAt, false),
+          };
+        });
         return {
-          slug: row?.slug || parts[1] || id,
-          contentType: row?.content_type || parts[0] || "",
-          intent: "unknown",
-          filePath: row?.file || "",
-          locale: row?.locale || parts[2],
+          hubId,
+          pillarUrl: cluster.path,
+          keyword,
+          locale: hub?.locale,
+          members,
+          clusterSlugs: members.map((m) => m.slug),
+          memberIds: cluster.members,
+          clusterCount: cluster.members.length,
         };
       });
+      const uniqueOrphans = brokenClusterRefs.map((row) => ({
+        slug: row.slug,
+        contentType: row.contentType,
+        intent: "unknown",
+        filePath: row.filePath,
+        locale: row.locale,
+        pillar_path: row.pillar_path,
+        reason: row.reason,
+      }));
       const withPillar = Object.values(seoIndex.entries).filter(
         (e) => e.is_pillar || (typeof e.pillar_path === "string" && e.pillar_path.trim()),
       ).length;
@@ -741,12 +860,13 @@ export function registerSeoRoutes(app: Express): void {
       res.json({
         intentDistribution,
         clusters,
+        clusterHealth,
+        brokenClusterRefs,
         orphanPages: uniqueOrphans,
         featureCoverage,
         faqCoverage,
         schemaCoverage,
         indexRebuilt: !!seoIndex.rebuilt,
-        indexWarnings: seoIndex.warnings || [],
         totals: {
           totalPages,
           withPillar,
@@ -759,6 +879,211 @@ export function registerSeoRoutes(app: Express): void {
       });
     } catch (err) {
       res.status(500).json({ error: "Failed to build SEO overview", message: String(err) });
+    }
+  });
+
+  app.get("/api/seo/cluster-entries", async (req, res) => {
+    try {
+      const bucketRaw = typeof req.query.bucket === "string" ? req.query.bucket : "";
+      const {
+        loadSeoIndex,
+        listClusterBucketEntries,
+        isClusterFilterBucket,
+      } = await import("../seo-index");
+      if (!isClusterFilterBucket(bucketRaw)) {
+        res.status(400).json({
+          error:
+            "Invalid bucket. Must be one of: unclustered, partiallySet, brokenRefs, emptyHubs, clustered",
+        });
+        return;
+      }
+      const q = typeof req.query.q === "string" ? req.query.q : "";
+      const page = Math.max(1, parseInt(String(req.query.page || "1"), 10) || 1);
+      const pageSizeRaw = parseInt(String(req.query.pageSize || "25"), 10) || 25;
+      const pageSize = Math.min(100, Math.max(1, pageSizeRaw));
+      const contentRoot = getContentRoot(res);
+      const seoIndex = loadSeoIndex(contentRoot);
+      const result = listClusterBucketEntries(seoIndex, {
+        bucket: bucketRaw,
+        q,
+        page,
+        pageSize,
+        ci: getCI(res),
+        contentRoot,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to list cluster entries", message: String(err) });
+    }
+  });
+
+  app.get("/api/seo/entry/:contentType/:slug", async (req, res) => {
+    try {
+      const { contentType, slug } = req.params;
+      const locale = normalizeLocale(
+        (req.query.locale as string) || getDefaultLocale(),
+      );
+      if (!isValidType(contentType)) {
+        res.status(400).json({
+          error: `Invalid content type. Must be one of: ${getAllFolders().join(", ")}`,
+        });
+        return;
+      }
+
+      const { loadSeoIndex, seoEntryId } = await import("../seo-index");
+      const contentRoot = getContentRoot(res);
+      const seoIndex = loadSeoIndex(contentRoot);
+      const id = seoEntryId(contentType, slug, locale);
+      const row = seoIndex.entries[id];
+      const merged = getCI(res).loadMergedContent(contentType, slug, locale);
+      const data = (merged.data || {}) as Record<string, unknown>;
+      if (!row && !merged.data) {
+        res.status(404).json({ error: "Entry not found" });
+        return;
+      }
+
+      const meta =
+        data.meta && typeof data.meta === "object" && !Array.isArray(data.meta)
+          ? (data.meta as Record<string, unknown>)
+          : {};
+      const seo =
+        data.seo && typeof data.seo === "object" && !Array.isArray(data.seo)
+          ? (data.seo as Record<string, unknown>)
+          : {};
+      const title = typeof data.title === "string" && data.title.trim() ? data.title.trim() : null;
+      const pageTitle =
+        typeof meta.page_title === "string" && meta.page_title.trim() ? meta.page_title.trim() : null;
+      const description =
+        typeof meta.description === "string" && meta.description.trim() ? meta.description.trim() : null;
+      const yamlKeyword =
+        typeof seo.main_keyword === "string" && seo.main_keyword.trim()
+          ? seo.main_keyword.trim()
+          : null;
+      const updatedAt = resolveEntryUpdatedAt({
+        contentType,
+        slug: row?.slug || slug,
+        locale: row?.locale || locale,
+        record: data,
+        contentRoot,
+      });
+
+      const contentRootName = getContentRootName(res);
+      const gscCfg = getGscConfig(contentRoot);
+      const entryPath = row?.path || "";
+      let gscStatus: {
+        configured: boolean;
+        record: ReturnType<typeof getRecord> | null;
+        stale: boolean;
+      } = { configured: gscCfg.configured, record: null, stale: true };
+      if (entryPath) {
+        const siteCtx = getSiteSitemapCtx(res);
+        const debugUrls = getDebugSitemapUrls(siteCtx);
+        const resolved = resolvePublicInspectLoc(entryPath, debugUrls);
+        const record = resolved.loc ? getRecord(contentRootName, resolved.loc) ?? null : null;
+        gscStatus = {
+          configured: gscCfg.configured,
+          record,
+          stale: isStale(record ?? undefined),
+        };
+      }
+
+      res.json({
+        id,
+        contentType,
+        slug: row?.slug || (typeof data.slug === "string" ? data.slug : slug),
+        locale: row?.locale || locale,
+        title,
+        page_title: pageTitle,
+        description,
+        path: row?.path || "",
+        main_keyword: row?.main_keyword || yamlKeyword,
+        is_pillar: row?.is_pillar === true || seo.is_pillar === true,
+        pillar_path:
+          (typeof row?.pillar_path === "string" && row.pillar_path) ||
+          (typeof seo.pillar_path === "string" ? seo.pillar_path : null),
+        file: row?.file || merged.filePath || null,
+        updated_at: updatedAt,
+        lastmod: toSitemapLastmod(updatedAt, false),
+        gscStatus,
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to load cluster entry", message: String(err) });
+    }
+  });
+
+  app.get("/api/seo/cluster-diagnostics", async (req, res) => {
+    try {
+      const auth = await requireStaffSession(req, res);
+      if (!auth.authorized) return;
+
+      const hubId = typeof req.query.hubId === "string" ? req.query.hubId.trim() : "";
+      if (!hubId) {
+        res.status(400).json({ error: "hubId query parameter is required" });
+        return;
+      }
+
+      const contentRoot = getContentRoot(res);
+      const { loadSeoIndex } = await import("../seo-index");
+      const seoIndex = loadSeoIndex(contentRoot);
+      const cluster = seoIndex.clusters[hubId];
+      if (!cluster?.path) {
+        res.status(404).json({ error: "Cluster not found" });
+        return;
+      }
+
+      const site = res.locals.site as SiteContext | undefined;
+      if (!site?.contentIndex) {
+        res.status(500).json({ error: "Site context unavailable" });
+        return;
+      }
+
+      const rendered = await renderHubHtml({
+        site,
+        pathname: cluster.path,
+        variantKey: "live",
+      });
+
+      const scannedAt = new Date().toISOString();
+      if (!rendered || rendered.status !== 200 || !rendered.html.trim()) {
+        res.json({
+          hubId,
+          pillarUrl: cluster.path,
+          scanStatus: "render_failed",
+          missingLinks: [],
+          scannedAt,
+          fromCache: false,
+        });
+        return;
+      }
+
+      const members = cluster.members
+        .map((id) => {
+          const row = seoIndex.entries[id];
+          return {
+            memberId: id,
+            memberSlug: row?.slug || id.split("/").slice(1, -1).join("/") || id,
+            memberPath: row?.path || "",
+            locale: row?.locale || "en",
+          };
+        })
+        .filter((m) => m.memberPath.trim());
+
+      const missingLinks = findMissingMemberLinks({
+        html: rendered.html,
+        members,
+        ci: getCI(res),
+      });
+
+      res.json({
+        hubId,
+        pillarUrl: cluster.path,
+        scanStatus: "ok",
+        missingLinks,
+        scannedAt,
+        fromCache: rendered.fromCache,
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to scan cluster hub links", message: String(err) });
     }
   });
 
@@ -1041,7 +1366,15 @@ export function registerSeoRoutes(app: Express): void {
       };
 
       if (getType(contentType) === "landing") {
-        responseData.locations = (commonData?.locations as string[]) || [];
+        const commonLocs = Array.isArray(commonData?.locations)
+          ? (commonData.locations as string[])
+          : [];
+        const localeLocs =
+          hasLive && liveFile.data && Array.isArray(liveFile.data.locations)
+            ? (liveFile.data.locations as string[])
+            : [];
+        responseData.locations =
+          commonLocs.length > 0 ? commonLocs : localeLocs;
         responseData.availableLocations = listLocationPages(locale, ci).map(
           (loc) => ({
             slug: loc.slug,

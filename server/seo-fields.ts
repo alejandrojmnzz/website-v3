@@ -177,8 +177,22 @@ export function readTopLevelScalar(content: string, key: string): string | null 
   return raw;
 }
 
+export function isPillarPathExplicitlyNull(seo: SeoBlock): boolean {
+  return seo.pillar_path === null;
+}
+
 export function normalizeSeoBlock(raw: SeoBlock): SeoBlock {
   const out: SeoBlock = { ...raw };
+  if (out.pillar_path === null) {
+    delete out[LEGACY_SEO_PILLAR_KEY];
+    if (typeof out.main_keyword === "string") {
+      out.main_keyword = out.main_keyword.trim() || null;
+    }
+    const isPillarRaw = out.is_pillar as unknown;
+    if (isPillarRaw === true || isPillarRaw === "true") out.is_pillar = true;
+    else if (isPillarRaw === false || isPillarRaw === "false") out.is_pillar = false;
+    return out;
+  }
   const pillarPath =
     (typeof out.pillar_path === "string" && out.pillar_path) ||
     (typeof out[LEGACY_SEO_PILLAR_KEY] === "string" && out[LEGACY_SEO_PILLAR_KEY]) ||
@@ -278,7 +292,9 @@ export function validateSeoSave(opts: {
   }
 
   const pillarPath = typeof coerced.pillar_path === "string" ? coerced.pillar_path.trim() : "";
-  if (pillarPath) {
+  if (coerced.pillar_path === null) {
+    coerced.pillar_path = null;
+  } else if (pillarPath) {
     const prefix = pathLocalePrefix(pillarPath);
     if (prefix && prefix !== opts.locale.toLowerCase()) {
       return {
@@ -314,7 +330,12 @@ export function mergeSeoUpdates(current: SeoBlock, updates: Record<string, unkno
       next.is_pillar = value === true || value === "true";
       continue;
     }
-    if (value === null || value === "") {
+    if (value === null) {
+      if (field === "pillar_path") next.pillar_path = null;
+      else next[field] = null;
+      continue;
+    }
+    if (value === "") {
       next[field] = field === "pillar_path" ? "" : null;
       continue;
     }

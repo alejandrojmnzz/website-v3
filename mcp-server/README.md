@@ -6,6 +6,8 @@ An MCP (Model Context Protocol) server that gives Claude read and write access t
 
 **Multi-site:** call `list_sites` first when more than one domain exists, then pass `site` (e.g. `4geeks.com`) on every tool.
 
+**Catalog by capability:** in production, `tools/list` on `/mcp` only includes tools the caller’s grants allow (`content_view` for YAML/component/explain reads). `GET /tools` is the full unauthenticated map. After a role change, refresh the MCP server in Cursor — the palette does not update mid-session. `get_current_user` returns `allowed_tools`. Handlers still `checkCap`. Dev does not filter the catalog.
+
 **Shared-layout / `single_template`:** shell lives in `single.{locale}.yml`; create with `create_entry`, locale fields (e.g. `content`), and `sections: []`. See `explain_site` topic `shared-layout`. Call `get_content_type_info` before creating when unsure (`db_backed` vs `single_template`, `create_via`).
 
 ## Mutating response envelope
@@ -49,6 +51,8 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `add_database_item` / `add_database_items` / `update_database_item` / `update_database_items` / `delete_database_item` | Local YAML item CRUD (FAQ database etc.; bulk max 40, best-effort) |
 | `reindex_database` | Vector reindex after item writes (`databases_manage`) |
 | `get_product_funnel` / `update_product_funnel` | Product conversion funnels |
+| `test_redirect` | Inspect one URL: first-match winner + conflicts (`seo_edit`) |
+| `update_redirect` | Add / delete / move one CMS redirect (`seo_edit`; call `test_redirect` first) |
 
 See `explain_site` topic `local_databases` before FAQ database mutations.
 

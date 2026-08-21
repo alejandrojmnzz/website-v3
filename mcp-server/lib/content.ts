@@ -17,6 +17,7 @@ export const CONTENT_TYPES_PATH = path.join(MARKETING_CONTENT_PATH, "content-typ
 interface SiteConfigMcp {
   domain: string;
   contentFolder: string;
+  inheritComponentsFrom?: string;
 }
 
 let _mcpSiteConfigsCache: SiteConfigMcp[] | null = null;
@@ -64,13 +65,29 @@ function parseSitesYml(): SiteConfigMcp[] {
   const configs: SiteConfigMcp[] = [];
   for (const [domain, config] of Object.entries(parsed)) {
     if (domain === "bucket_name") continue;
-    if (config && typeof config === "object") {
-      const c = config as Record<string, unknown>;
-      configs.push({
-        domain,
-        contentFolder: (c.content_folder as string) || (c.contentFolder as string) || "site_default",
-      });
+    if (!config || typeof config !== "object" || Array.isArray(config)) {
+      throw new Error(
+        formatSitesYmlRequiredError(
+          `site "${domain}" must be a YAML mapping with content_folder (got ${config === null ? "null" : Array.isArray(config) ? "array" : typeof config})`,
+        ),
+      );
     }
+    const c = config as Record<string, unknown>;
+    const contentFolder =
+      (typeof c.content_folder === "string" && c.content_folder.trim()) ||
+      (typeof c.contentFolder === "string" && c.contentFolder.trim()) ||
+      "";
+    if (!contentFolder) {
+      throw new Error(formatSitesYmlRequiredError(`site "${domain}" is missing required content_folder`));
+    }
+    configs.push({
+      domain,
+      contentFolder,
+      inheritComponentsFrom:
+        (typeof c.inherit_components_from === "string" && c.inherit_components_from.trim()) ||
+        (typeof c.inheritComponentsFrom === "string" && c.inheritComponentsFrom.trim()) ||
+        undefined,
+    });
   }
 
   if (configs.length === 0) {
@@ -401,16 +418,38 @@ export function scanPages(contentPath?: string): PageEntry[] {
         }
       }
 
+      const localeSlug: Record<string, string> = {};
+      for (const locale of locales) {
+        for (const ext of ["yml", "yaml"]) {
+          const localeFile = `${locale}.${ext}`;
+          if (!files.includes(localeFile)) continue;
+          try {
+            const parsed = safeLoad(fs.readFileSync(path.join(entryPath, localeFile), "utf-8"));
+            const candidate = parsed?.slug;
+            if (typeof candidate === "string" && candidate.trim()) {
+              localeSlug[locale] = candidate.trim();
+            }
+          } catch {
+            // Keep fallback behavior when locale file is malformed.
+          }
+          break;
+        }
+      }
+
       let urls: Record<string, string> | undefined;
       if (config.url_pattern) {
         const pattern = config.url_pattern;
         const resolved: Record<string, string> = {};
         if (pattern["default"]) {
-          const path_ = pattern["default"].replace(":slug", entry.name);
-          for (const locale of locales) resolved[locale] = path_;
+          for (const locale of locales) {
+            const slugForLocale = localeSlug[locale] || entry.name;
+            resolved[locale] = pattern["default"].replace(":slug", slugForLocale);
+          }
         } else {
           for (const locale of locales) {
-            if (pattern[locale]) resolved[locale] = pattern[locale].replace(":slug", entry.name);
+            if (!pattern[locale]) continue;
+            const slugForLocale = localeSlug[locale] || entry.name;
+            resolved[locale] = pattern[locale].replace(":slug", slugForLocale);
           }
         }
         if (Object.keys(resolved).length > 0) urls = resolved;
@@ -546,12 +585,22 @@ function readSchemaMeta(schemaYml: string): {
   return { name, description, variants };
 }
 
+function inheritForFolder(contentFolder: string): string | undefined {
+  const want = contentFolder.replace(/\\/g, "/").replace(/\/+$/, "");
+  for (const c of getMcpSiteConfigs()) {
+    const folder = c.contentFolder.replace(/\\/g, "/").replace(/\/+$/, "");
+    if (folder === want) return c.inheritComponentsFrom;
+  }
+  return undefined;
+}
+
 export function listComponents(contentPath?: string): ComponentInfo[] {
   const folder = contentFolderFromPath(contentPath);
-  assertNoRegistryCollisions(folder);
+  const inherit = inheritForFolder(folder);
+  assertNoRegistryCollisions(folder, process.cwd(), inherit);
   const components: ComponentInfo[] = [];
 
-  for (const entry of listMergedComponentTypes(folder)) {
+  for (const entry of listMergedComponentTypes(folder, process.cwd(), inherit)) {
     const versionDirs = fs
       .readdirSync(entry.componentDir, { withFileTypes: true })
       .filter(d => d.isDirectory() && /^v\d/.test(d.name));
@@ -587,7 +636,7 @@ export interface ComponentSchemaSlim {
 
 export function getComponentSchema(componentType: string, contentPath?: string): ComponentSchemaSlim | null {
   const folder = contentFolderFromPath(contentPath);
-  const resolved = resolveComponentPath(componentType, folder);
+  const resolved = resolveComponentPath(componentType, folder, process.cwd(), inheritForFolder(folder));
   if (!resolved) return null;
 
   const versionDirs = fs
@@ -663,7 +712,7 @@ export function getComponentVariant(
   contentPath?: string,
 ): ComponentVariantDetail | null {
   const folder = contentFolderFromPath(contentPath);
-  const resolved = resolveComponentPath(componentType, folder);
+  const resolved = resolveComponentPath(componentType, folder, process.cwd(), inheritForFolder(folder));
   if (!resolved) return null;
   const componentPath = resolved.componentDir;
 

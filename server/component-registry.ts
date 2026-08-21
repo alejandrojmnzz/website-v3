@@ -1,5 +1,5 @@
 import * as fs from "fs";
-import { getDefaultContentFolder } from "./site-config";
+import { getDefaultContentFolder, getInheritComponentsFrom } from "./site-config";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import {
@@ -36,10 +36,20 @@ function activeContentFolder(contentFolder?: string): string {
   return contentFolder || getDefaultContentFolder();
 }
 
+function inheritFor(contentFolder?: string): string | undefined {
+  return getInheritComponentsFrom(activeContentFolder(contentFolder));
+}
+
 /** Absolute path to a component type dir (shared or site), or null if missing. */
 function componentTypeDir(componentType: string, contentFolder?: string): string | null {
   try {
-    const resolved = resolveComponentPath(componentType, activeContentFolder(contentFolder));
+    const folder = activeContentFolder(contentFolder);
+    const resolved = resolveComponentPath(
+      componentType,
+      folder,
+      process.cwd(),
+      inheritFor(folder),
+    );
     return resolved?.componentDir ?? null;
   } catch (err) {
     log.error({ err }, `Registry collision resolving ${componentType}`);
@@ -57,7 +67,8 @@ function siteRegistryPath(contentFolder?: string): string {
  * Call during server startup.
  */
 export function assertComponentRegistryHealth(contentFolder?: string): void {
-  assertNoRegistryCollisions(activeContentFolder(contentFolder));
+  const folder = activeContentFolder(contentFolder);
+  assertNoRegistryCollisions(folder, process.cwd(), inheritFor(folder));
 }
 
 /**
@@ -161,7 +172,10 @@ function compareVersions(a: string, b: string): number {
 
 export function listComponents(contentFolder?: string): string[] {
   try {
-    return listMergedComponentTypes(activeContentFolder(contentFolder)).map((t) => t.type);
+    const folder = activeContentFolder(contentFolder);
+    return listMergedComponentTypes(folder, process.cwd(), inheritFor(folder)).map(
+      (t) => t.type,
+    );
   } catch (error) {
     log.error({ err: error }, "Error listing components:");
     throw error;
@@ -172,7 +186,8 @@ export function listComponentOrigins(
   contentFolder?: string,
 ): Record<string, RegistryOrigin> {
   const map: Record<string, RegistryOrigin> = {};
-  for (const t of listMergedComponentTypes(activeContentFolder(contentFolder))) {
+  const folder = activeContentFolder(contentFolder);
+  for (const t of listMergedComponentTypes(folder, process.cwd(), inheritFor(folder))) {
     map[t.type] = t.origin;
   }
   return map;
@@ -522,7 +537,7 @@ export function getPrimaryExampleMeta(
 
 export function getRegistryOverview(contentFolder?: string): RegistryOverview {
   const folder = activeContentFolder(contentFolder);
-  const merged = listMergedComponentTypes(folder);
+  const merged = listMergedComponentTypes(folder, process.cwd(), inheritFor(folder));
 
   return {
     components: merged.map(({ type, origin }) => {
@@ -619,48 +634,49 @@ export interface AllFieldEditors {
 }
 
 /**
- * Load all field editors from component registry
- * Scans all component folders for field-editors.ts files
+ * Load all field editors from component registry for a site
+ * (resolved through inherit_components_from when set).
  */
-export function loadAllFieldEditors(): AllFieldEditors {
+export function loadAllFieldEditors(contentFolder?: string): AllFieldEditors {
   const result: AllFieldEditors = {};
-  
+  const folder = activeContentFolder(contentFolder);
+
   try {
-    const components = listComponents();
-    
+    const components = listComponents(folder);
+
     for (const componentType of components) {
       // Skip common folder
       if (componentType === "common") continue;
-      
-      const versions = listVersions(componentType);
+
+      const versions = listVersions(componentType, folder);
       if (versions.length === 0) continue;
-      
+
       // Use latest version
       const latestVersion = versions[0];
       const fieldEditorsPath = path.join(
-        componentTypeDir(componentType) || "",
-        latestVersion, 
-        "field-editors.ts"
+        componentTypeDir(componentType, folder) || "",
+        latestVersion,
+        "field-editors.ts",
       );
-      
+
       if (fs.existsSync(fieldEditorsPath)) {
         try {
           const content = fs.readFileSync(fieldEditorsPath, "utf8");
-          
+
           // Parse the TypeScript file to extract fieldEditors object
           // Look for: export const fieldEditors: Record<string, EditorType> = { ... };
           const match = content.match(/export\s+const\s+fieldEditors\s*[^=]*=\s*(\{[\s\S]*?\});/);
-          
+
           if (match) {
             // Simple parser for the object literal
             const objStr = match[1];
             const entries: Record<string, EditorType> = {};
-            
+
             // Match patterns like: "features[].icon": "icon-picker",
             // Also allow unquoted identifier keys: item_overrides: "faq-section-editor",
             const entryRegex = /(?:"([^"]+)"|([A-Za-z_][\w.[\]]*)):\s*"([^"]+)"/g;
             let entryMatch;
-            
+
             while ((entryMatch = entryRegex.exec(objStr)) !== null) {
               const fieldPath = entryMatch[1] || entryMatch[2];
               const editorType = entryMatch[3];
@@ -670,7 +686,7 @@ export function loadAllFieldEditors(): AllFieldEditors {
                 entries[fieldPath] = editorType as EditorType;
               }
             }
-            
+
             if (Object.keys(entries).length > 0) {
               result[componentType] = entries;
             }
@@ -683,7 +699,7 @@ export function loadAllFieldEditors(): AllFieldEditors {
   } catch (error) {
     log.error({ err: error }, "Error loading field editors:");
   }
-  
+
   return result;
 }
 

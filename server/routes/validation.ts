@@ -5,23 +5,31 @@ import * as path from "path";
 import { ValidationService } from "../../scripts/validation/service";
 import { getCanonicalUrl, matchContentFilesForUrl } from "../../scripts/validation/shared/canonicalUrls";
 import { getValidationCacheService } from "../services/validationCacheService";
+import {
+  CACHE_FRESHNESS_MAX_AGE_SECONDS,
+  summarizeCacheFreshness,
+} from "../services/validationCacheMerge";
+import { buildUrlCoveragePage } from "../services/validationCoverage";
 import { applyValidationRunToCache } from "../services/validationCachePostProcess";
 import {
   DIAGNOSTICS_SKIP_FOR_PER_PAGE,
   getDiagnosticsJob,
+  getPartialIssuesForRunningJob,
   isDiagnosticsRunning,
   listCacheIssues,
   listDiagnosticsJobs,
+  maybeReloadValidationCache,
   startDiagnosticsJob,
   type DiagnosticsJobRecord,
 } from "../services/diagnosticsJobService";
-import { entryKeyFromContentFile } from "../../scripts/validation/shared/entryKey";
+import { entryKeyFromContentFile, buildEntryKey } from "../../scripts/validation/shared/entryKey";
 import {
   isEntryLocalValidator,
   ENTRY_LOCAL_VALIDATOR_NAMES,
 } from "../../scripts/validation/shared/runClass";
 import type { ValidationScope } from "../../scripts/validation/shared/runClass";
 import { validators as allPageValidators } from "../../scripts/validation/validators";
+import { getVersioningManager } from "../versioning";
 import { countDatabaseCacheErrors } from "../../scripts/validation/shared/databaseHealthChecks";
 import {
   isNonLocalFilesystemSrc,
@@ -174,10 +182,26 @@ export function registerValidationRoutes(app: Express): void {
   // Run entry-local validators for a single page — merge into unified store
   app.post("/api/validation/run-page", async (req, res) => {
     try {
-      const { url, validators: validatorNames } = req.body;
+      const { url, validators: validatorNames, variant: bodyVariant } = req.body;
 
       if (!url || typeof url !== "string") {
         return res.status(400).json({ error: "Missing or invalid 'url' field" });
+      }
+
+      let variant: string | null =
+        typeof bodyVariant === "string" && bodyVariant.trim()
+          ? bodyVariant.trim()
+          : null;
+      if (!variant) {
+        try {
+          const u = new URL(url, "http://local");
+          variant =
+            u.searchParams.get("variant") ||
+            u.searchParams.get("force_variant") ||
+            null;
+        } catch {
+          /* path-only url */
+        }
       }
 
       const service = new ValidationService();
@@ -190,7 +214,23 @@ export function registerValidationRoutes(app: Express): void {
 
       const allContentFiles = context.contentFiles;
       const parsed = getCI(res).parseContentUrl(url);
-      const filteredFiles = matchContentFilesForUrl(allContentFiles, url, parsed);
+      const filteredFiles = matchContentFilesForUrl(
+        allContentFiles,
+        url,
+        parsed,
+        variant,
+      );
+
+      if (variant && filteredFiles.length === 0) {
+        return res.json({
+          skipped: true,
+          reason: "unpublished_variant",
+          message:
+            "This variant isn’t published (0% traffic). Diagnostics run after you assign traffic.",
+          validators: [],
+          summary: { passed: 0, failed: 0, warnings: 0 },
+        });
+      }
 
       context.contentFiles = filteredFiles;
 
@@ -224,7 +264,9 @@ export function registerValidationRoutes(app: Express): void {
         const cache = getValidationCache(res);
         const entryKeys = filteredFiles.map((f) => entryKeyFromContentFile(f));
         for (const file of filteredFiles) {
-          cache.registerUrl(getCanonicalUrl(file), entryKeyFromContentFile(file));
+          if (!file.variant) {
+            cache.registerUrl(getCanonicalUrl(file), entryKeyFromContentFile(file));
+          }
         }
         cache.applyValidatorResults(result.validators, {
           contentFiles: allContentFiles,
@@ -384,14 +426,22 @@ export function registerValidationRoutes(app: Express): void {
         ?? getDefaultContentRoot();
 
       const service = new ValidationService();
-      await service.buildContext({ contentRoot, ci: getCI(res) });
+      const context = await service.buildContext({ contentRoot, ci: getCI(res) });
 
-      const result = await service.runSingleValidator(
-        name,
-        includeArtifacts ?? false,
-      );
+      const result = await service.runValidators({
+        validators: [name],
+        includeArtifacts: includeArtifacts ?? false,
+      });
 
-      res.json(result);
+      // Same cache write path as POST /api/validation/run — otherwise Redirects /
+      // single-validator UI refreshes the badge but leaves stale diagnostics issues.
+      try {
+        await applyValidationRunToCache(getValidationCache(res), result, context);
+      } catch (err) {
+        log.warn({ err }, "ValidationCache post-process error (non-fatal)");
+      }
+
+      res.json(result.validators[0]);
     } catch (error) {
       log.error({ err: error }, "Validation error:");
       res.status(500).json({
@@ -572,6 +622,47 @@ export function registerValidationRoutes(app: Express): void {
     res.json(summary);
   });
 
+  app.get("/api/validation/cache-freshness", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+    const cache = getValidationCache(res);
+    const counts = summarizeCacheFreshness(
+      cache.getAll().values(),
+      CACHE_FRESHNESS_MAX_AGE_SECONDS,
+    );
+    res.json({
+      ...counts,
+      last_site_wide_run_at: cache.getLastSiteWideRunAt(),
+    });
+  });
+
+  app.get("/api/validation/cache-freshness-urls", async (req, res) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+    const cache = getValidationCache(res);
+    const urlRows = Array.from(cache.getAll().entries()).map(([url, entry]) => {
+      const entryKey = cache.resolveEntryKeyFromUrl(url);
+      return {
+        url,
+        lastFullRunAt: entry.lastFullRunAt ?? null,
+        runMeta: entryKey ? cache.getRunMetaForEntry(entryKey) : undefined,
+      };
+    });
+    const q = typeof req.query.q === "string" ? req.query.q : undefined;
+    const filter = req.query.filter === "fresh" || req.query.filter === "not_fresh"
+      ? req.query.filter
+      : "all";
+    const page = typeof req.query.page === "string" ? Number(req.query.page) : undefined;
+    const pageSize = typeof req.query.pageSize === "string" ? Number(req.query.pageSize) : undefined;
+    const result = buildUrlCoveragePage(urlRows, [...ENTRY_LOCAL_VALIDATOR_NAMES], {
+      q,
+      filter,
+      page: Number.isFinite(page) ? page : undefined,
+      pageSize: Number.isFinite(pageSize) ? pageSize : undefined,
+    });
+    res.json(result);
+  });
+
   app.get("/api/validation/database-cache-summary", (_req, res) => {
     const cache = getValidationCache(res);
     const all = cache.getAllDatabases();
@@ -589,6 +680,9 @@ export function registerValidationRoutes(app: Express): void {
   app.get("/api/validation/cache-issues", async (req, res) => {
     const auth = await requireCapability(req, res, "metrics_view");
     if (!auth.authorized) return;
+    const severityRaw = typeof req.query.severity === "string" ? req.query.severity : undefined;
+    const severity =
+      severityRaw === "error" || severityRaw === "warning" ? severityRaw : undefined;
     const filters = {
       entryKey: typeof req.query.entryKey === "string" ? req.query.entryKey : undefined,
       url: typeof req.query.url === "string" ? req.query.url : undefined,
@@ -596,8 +690,33 @@ export function registerValidationRoutes(app: Express): void {
       redirect: typeof req.query.redirect === "string" ? req.query.redirect : undefined,
       media: typeof req.query.media === "string" ? req.query.media : undefined,
       database: typeof req.query.database === "string" ? req.query.database : undefined,
+      file: typeof req.query.file === "string" ? req.query.file : undefined,
+      validator: typeof req.query.validator === "string" ? req.query.validator : undefined,
+      category: typeof req.query.category === "string" ? req.query.category : undefined,
+      code: typeof req.query.code === "string" ? req.query.code : undefined,
+      severity,
     };
-    res.json({ issues: listCacheIssues(getValidationCache(res), filters) });
+    const { issues, facets } = listCacheIssues(getValidationCache(res), filters);
+    res.json({ issues, facets });
+  });
+
+  app.post("/api/validation/cache-issues/dismiss", async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
+    const { url, file, code } = req.body ?? {};
+    if (!code || typeof code !== "string") {
+      return res.status(400).json({ error: "Missing required field: code" });
+    }
+    const cache = getValidationCache(res);
+    if (file && typeof file === "string") {
+      const dismissed = await cache.dismissIssuesByFileAndCode(file, code);
+      return res.json({ success: true, dismissed });
+    }
+    if (!url || typeof url !== "string") {
+      return res.status(400).json({ error: "Missing required field: url or file" });
+    }
+    const dismissed = await cache.dismissIssuesByUrlAndCode(url, code);
+    return res.json({ success: true, dismissed });
   });
 
   app.get("/api/validation/diagnostics-jobs", async (req, res) => {
@@ -609,7 +728,8 @@ export function registerValidationRoutes(app: Express): void {
   app.get("/api/validation/diagnostics-jobs/:jobId", async (req, res) => {
     const auth = await requireCapability(req, res, "metrics_view");
     if (!auth.authorized) return;
-    const result = getDiagnosticsJob(getContentRoot(res), req.params.jobId);
+    const contentRoot = getContentRoot(res);
+    const result = getDiagnosticsJob(contentRoot, req.params.jobId);
     if (result.status === "not_found") {
       return res.status(404).json({
         status: "not_found",
@@ -619,6 +739,22 @@ export function registerValidationRoutes(app: Express): void {
       });
     }
     const job = result.job!;
+    const running = result.status === "queued" || result.status === "running";
+    let partialIssues: Record<string, unknown> | undefined;
+    let partial = false;
+    if (running) {
+      try {
+        partialIssues = await getPartialIssuesForRunningJob({
+          contentRoot,
+          ci: getCI(res),
+          cache: getValidationCache(res),
+          job,
+        });
+        partial = true;
+      } catch (err) {
+        log.warn({ err, jobId: job.jobId }, "Failed to load mid-run partial issues");
+      }
+    }
     return res.json({
       status: result.status,
       job_id: job.jobId,
@@ -634,10 +770,13 @@ export function registerValidationRoutes(app: Express): void {
       },
       summary: job.summary,
       error: job.error,
-      issuesBySlug: job.resultIssuesBySlug,
+      issuesBySlug: running ? (partialIssues ?? {}) : job.resultIssuesBySlug,
+      partial: running ? partial : undefined,
+      message: running
+        ? "Job still running. issuesBySlug includes only URLs flushed since this job started (partial)."
+        : result.message,
       validators: job.validatorResults,
       cache_updated: result.status === "completed",
-      message: result.message,
       log: Array.isArray((job as DiagnosticsJobRecord).log)
         ? (job as DiagnosticsJobRecord).log
         : [],
@@ -657,11 +796,13 @@ export function registerValidationRoutes(app: Express): void {
         cache: getValidationCache(res),
         slugs: req.body?.slugs,
         urls: req.body?.urls,
+        file: req.body?.file,
         freshness: req.body?.freshness,
         max_age_seconds: req.body?.max_age_seconds,
         validators: req.body?.validators,
         include_artifacts: req.body?.include_artifacts,
         categories: req.body?.categories,
+        confirm: req.body?.confirm === true,
       });
 
       if (result.status === "busy") {
@@ -719,6 +860,23 @@ export function registerValidationRoutes(app: Express): void {
         return;
       }
 
+      const variantParam =
+        (typeof req.query.variant === "string" && req.query.variant) ||
+        (typeof req.query.force_variant === "string" && req.query.force_variant) ||
+        null;
+      let variant = variantParam;
+      if (!variant) {
+        try {
+          const u = new URL(url, "http://local");
+          variant =
+            u.searchParams.get("variant") ||
+            u.searchParams.get("force_variant") ||
+            null;
+        } catch {
+          /* path-only */
+        }
+      }
+
       const service = new ValidationService();
       const context = await ensureSiteContext(service, res);
 
@@ -727,10 +885,94 @@ export function registerValidationRoutes(app: Express): void {
         context.contentFiles,
         url,
         parsed,
+        variant,
       );
       const urlLocale =
         parsed?.locale ||
         (url.startsWith("/es/") ? "es" : url.startsWith("/en/") ? "en" : null);
+
+      // Unpublished / missing published-variant row
+      if (variant && matchingFiles.length === 0) {
+        const contentType = parsed?.contentType ?? null;
+        const slug = parsed?.slug ?? null;
+        const locale = urlLocale || parsed?.locale || "en";
+        let allocation = 0;
+        let draftOnly = false;
+        if (contentType && slug) {
+          const versioningManager =
+            (res.locals.site as any)?.versioningManager ?? getVersioningManager();
+          const ver = versioningManager.getVersioningForContent(contentType, slug) || {};
+          const locVariants = ver[locale]?.variants ?? [];
+          const row = locVariants.find((v: { slug: string }) => v.slug === variant);
+          allocation = row?.allocation ?? 0;
+          const liveFiles = matchContentFilesForUrl(
+            context.contentFiles,
+            url,
+            parsed,
+            null,
+          );
+          draftOnly = liveFiles.every((f) => f.isDraft) && liveFiles.length > 0;
+          if (!row && liveFiles.length === 0) {
+            // still resolve draft-only from any matching slug files
+            const any = context.contentFiles.filter(
+              (f) => f.type === contentType && f.slug === slug,
+            );
+            draftOnly = any.length > 0 && any.every((f) => f.isDraft || f.variant);
+          }
+        }
+        const entryKey =
+          contentType && slug
+            ? buildEntryKey(contentType, slug, locale, variant)
+            : undefined;
+        res.json({
+          url,
+          contentType: contentType || "unknown",
+          slug: slug || "unknown",
+          locale,
+          variant,
+          allocation,
+          entryKey,
+          filePath: "",
+          title: slug || url,
+          validationSkippedReason: "unpublished_variant",
+          cached: null,
+          dirty: false,
+          schemaValidation: { valid: true, errors: [] },
+          meta: {
+            page_title: null,
+            titleLength: 0,
+            description: null,
+            descriptionLength: 0,
+            og_image: null,
+            canonical_url: null,
+            robots: null,
+          },
+          schema: {
+            configured: false,
+            includes: [],
+            sources: [],
+            renderedJsonLd: [],
+            htmlPreview: "",
+          },
+          sections: { count: 0, types: [], hasFaq: false },
+          images: {
+            referencedIds: [],
+            missingFromRegistry: [],
+            missingFromDisk: [],
+          },
+          translations: { locale, availableLocales: [locale], counterpartUrl: null },
+          redirects: { incomingRedirects: [] },
+          emptyFields: [],
+          issues: [],
+          education: {
+            summary: draftOnly
+              ? "This variant isn’t published (0% traffic). Diagnostics run after you assign traffic. Redirects stay on the live locale file only. For unpublished entries, use Global Diagnostics or open preview without ?force_variant."
+              : "This variant isn’t published (0% traffic). Diagnostics run after you assign traffic. Redirects stay on the live locale file only.",
+          },
+        });
+        return;
+      }
+
       const file =
         (urlLocale && matchingFiles.find((f: any) => f.locale === urlLocale)) ||
         matchingFiles.find((f: any) => f.locale !== "_common") ||
@@ -740,6 +982,19 @@ export function registerValidationRoutes(app: Express): void {
       if (!file) {
         res.status(404).json({ error: `No content found for URL: ${url}` });
         return;
+      }
+
+      let allocationPct: number | undefined;
+      if (file.variant) {
+        const versioningManager =
+          (res.locals.site as any)?.versioningManager ?? getVersioningManager();
+        const ver =
+          versioningManager.getVersioningForContent(file.type, file.slug) || {};
+        const locVariants = ver[file.locale]?.variants ?? [];
+        const row = locVariants.find(
+          (v: { slug: string }) => v.slug === file.variant,
+        );
+        allocationPct = row?.allocation ?? undefined;
       }
 
       let rawData: Record<string, unknown> = {};
@@ -788,7 +1043,9 @@ export function registerValidationRoutes(app: Express): void {
           const result = getCI(res).loadContent({
             contentType: file.type,
             slug: folderSlug,
-            localeOrVariant: inferredLocale,
+            localeOrVariant: file.variant
+              ? `${file.variant}.${inferredLocale}`
+              : inferredLocale,
           });
           if (!result.success) {
             schemaValidation.valid = false;
@@ -834,7 +1091,45 @@ export function registerValidationRoutes(app: Express): void {
       let schemaHtml = "";
       let parsedSchemas: any[] = [];
       try {
-        schemaHtml = await generateSsrSchemaHtml(url, getCI(res), getContentRoot(res));
+        // Prefer anonymous SSR HTML page cache (what was actually served) for
+        // JSON-LD inspection; fall back to regenerating schema tags only.
+        const site = res.locals.site as { contentRootName?: string } | undefined;
+        const siteId =
+          site?.contentRootName ?? path.basename(getContentRoot(res)) ?? "default";
+        const {
+          buildHtmlCacheKey,
+          getCachedHtml,
+        } = await import("../html-page-cache");
+        const canonical = getCanonicalUrl(file);
+        const fileMeta = (file.meta || {}) as Record<string, unknown>;
+        const pathCandidates = new Set<string>([
+          canonical,
+          url.split("?")[0].split("#")[0],
+        ]);
+        if (Array.isArray(fileMeta.redirects)) {
+          for (const r of fileMeta.redirects) {
+            if (typeof r === "string") pathCandidates.add(r);
+          }
+        }
+        if (file.slug === "home") {
+          pathCandidates.add(`/${file.locale === "_common" ? "en" : file.locale}`);
+          pathCandidates.add("/");
+        }
+        for (const pathname of pathCandidates) {
+          if (typeof pathname !== "string" || !pathname.startsWith("/")) continue;
+          const cached = getCachedHtml(buildHtmlCacheKey(siteId, pathname, "live"));
+          if (cached?.html?.includes("application/ld+json")) {
+            schemaHtml = cached.html;
+            break;
+          }
+        }
+        if (!schemaHtml) {
+          schemaHtml = await generateSsrSchemaHtml(
+            canonical,
+            getCI(res),
+            getContentRoot(res),
+          );
+        }
         const scriptRegex =
           /<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g;
         let match: RegExpExecArray | null;
@@ -901,14 +1196,15 @@ export function registerValidationRoutes(app: Express): void {
         (f: any) =>
           f.slug === file.slug &&
           f.type === file.type &&
-          f.locale !== file.locale,
+          f.locale !== file.locale &&
+          !f.variant,
       );
       const counterpartUrl = counterpartFile
         ? getCanonicalUrl(counterpartFile)
         : null;
 
       const incomingRedirects: string[] = [];
-      if (context.redirectMap && context.redirectMap.size > 0) {
+      if (!file.variant && context.redirectMap && context.redirectMap.size > 0) {
         context.redirectMap.forEach((entry: any, from: string) => {
           if (entry.to === url) {
             incomingRedirects.push(from);
@@ -949,7 +1245,9 @@ export function registerValidationRoutes(app: Express): void {
       const meta = file.meta || {};
       const cache = getValidationCache(res);
       const entryKey = entryKeyFromContentFile(file);
-      cache.registerUrl(url, entryKey);
+      if (!file.variant) {
+        cache.registerUrl(url, entryKey);
+      }
 
       const storedIssues = cache.getIssuesByEntryKey(entryKey);
       const runMeta = cache.getRunMetaForEntry(entryKey);
@@ -964,13 +1262,17 @@ export function registerValidationRoutes(app: Express): void {
         validationCacheBuiltAt: s.lastRunAt,
       }));
 
-      const cachedEntry = cache.getByUrl(url) ?? cache.getByEntryKey(entryKey) ?? null;
+      const cachedEntry = file.variant
+        ? cache.getByEntryKey(entryKey) ?? null
+        : cache.getByUrl(url) ?? cache.getByEntryKey(entryKey) ?? null;
 
       res.json({
         url,
         contentType: file.type,
         slug: file.slug,
         locale: file.locale,
+        variant: file.variant || null,
+        allocation: allocationPct,
         entryKey,
         filePath: file.filePath,
         title: file.title,
@@ -1044,8 +1346,9 @@ export function registerValidationRoutes(app: Express): void {
         issues,
 
         education: {
-          summary:
-            "Validation uses one shared store. This page shows issues that target this entry (including redirects/media that touch it). Saving re-checks local rules; redirect conflicts refresh when redirect config changes or you run Redirects/Global Health.",
+          summary: file.variant
+            ? `Validation for published variant “${file.variant}” (own issue bucket). Redirects stay on the live locale file only.`
+            : "Validation uses one shared store. This page shows issues that target this entry (including redirects/media that touch it). Saving re-checks local rules; redirect conflicts refresh when redirect config changes or you run Redirects/Global Health.",
         },
       });
     } catch (error) {

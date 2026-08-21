@@ -241,6 +241,7 @@ import {
   getRawUrlParamValue,
   type UrlParamValueShape,
   resolveStaticEntryUpdatedAt,
+  isKnownSeoFieldPath,
 } from "../content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveAllTemplateVars, buildContentDeliveryParamBag } from "../resolve-template-vars";
@@ -332,7 +333,7 @@ import {
   resolvePreviewBaseSlug,
   resolveVersioningReadSlug,
 } from "../shared-layout-entry";
-import { detachEntry, reattachEntry, getReattachSectionLossPreview } from "../shared-layout-detach";
+import { detachEntry, reattachEntry, getReattachSectionLossPreview, ReattachRequiredFieldsError } from "../shared-layout-detach";
 import {
   buildLocaleUnavailablePayload,
   isEmptyDetachedLocaleEntry,
@@ -1691,6 +1692,7 @@ export function registerContentRoutes(app: Express): void {
         protected_slugs: config.protected_slugs || [],
         preview: config.preview || null,
         schema_org_requirements: config.schema_org_requirements || [],
+        seo_monitoring: config.seo_monitoring || null,
         static_entry_count: getCI(res).findByType(type).length,
       });
     } catch (err) {
@@ -2035,18 +2037,46 @@ export function registerContentRoutes(app: Express): void {
       if (willHaveDb) {
         update.single_template = true;
       }
+      if (body.seo_monitoring !== undefined) {
+        if (body.seo_monitoring === null) {
+          update.seo_monitoring = null;
+        } else if (typeof body.seo_monitoring === "object") {
+          const sm = body.seo_monitoring as Record<string, unknown>;
+          update.seo_monitoring = {
+            enabled: sm.enabled === true,
+            require_cluster: sm.require_cluster === true,
+          };
+        } else {
+          res.status(400).json({ error: "seo_monitoring must be an object or null" });
+          return;
+        }
+      }
 
       try {
         updateContentTypeConfig(type, update, getContentRoot(res));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("Cannot disable shared layout") || msg.includes("requires _slug")) {
+        if (msg.includes("Cannot disable shared layout") || msg.includes("requires _slug") || msg.includes("Invalid field_mapping key")) {
           res.status(400).json({ error: msg });
           return;
         }
         throw err;
       }
       getCI(res).invalidateCommonFields(type);
+
+      if (body.seo_monitoring !== undefined) {
+        try {
+          const { invalidateSeoIndexCache, rebuildSeoIndex } = await import("../seo-index");
+          invalidateSeoIndexCache();
+          rebuildSeoIndex({
+            contentRoot: getContentRoot(res),
+            reason: "seo_monitoring_toggle",
+            mark: false,
+          });
+        } catch (seoErr) {
+          log.warn({ seoErr, type }, "seo-index rebuild after monitoring toggle failed");
+        }
+      }
 
       // When enabling shared layout, dissolve bindings for this type (bindings and templates don't mix)
       let bindingsDissolved: unknown = undefined;
@@ -3865,7 +3895,7 @@ export function registerContentRoutes(app: Express): void {
     }
   });
 
-  /** Reset one field: static deletes layer root key; DB clears CT FO + DB override. */
+  /** Reset one field: static deletes layer root key; DB clears CT FO + DB override; seo.* clears locale seo: key. */
   app.post("/api/content-types/:type/field-reset/:slug", async (req, res) => {
     try {
       const { type, slug } = req.params;
@@ -3888,6 +3918,54 @@ export function registerContentRoutes(app: Express): void {
       const config = getContentTypeConfig(type, ctRoot(res));
       if (!config) {
         res.status(404).json({ error: `Content type "${type}" not found` });
+        return;
+      }
+
+      if (isKnownSeoFieldPath(field) || field === "seo.pillar") {
+        const fieldPath = field === "seo.pillar" ? "seo.pillar_path" : field;
+        let dbItem: Record<string, unknown> | null = null;
+        const dbName = config.database?.slug;
+        if (dbName && getDB(res).exists(dbName)) {
+          const lookupKey = getLookupKey(type, ctRoot(res)) || "slug";
+          const localeKey = getLocaleKey(type, ctRoot(res)) || "locale";
+          const cached = await getDB(res).fetchItems(dbName);
+          const items = cached.items as Record<string, unknown>[];
+          const loc = locale.toLowerCase();
+          dbItem =
+            items.find((i) => {
+              if (String(i[lookupKey] ?? "") !== slug) return false;
+              const fromItem = i[localeKey] ?? i.locale ?? i.lang;
+              return typeof fromItem === "string" && fromItem.trim().toLowerCase() === loc;
+            }) ??
+            items.find((i) => String(i[lookupKey] ?? "") === slug) ??
+            null;
+        }
+        const { resetSeoOverlayField } = await import("../seo-index");
+        const result = resetSeoOverlayField({
+          contentType: type,
+          slug,
+          locale,
+          fieldPath,
+          author,
+          contentRoot: ctRoot(res),
+          variant,
+          dbItem,
+        });
+        if (!result.success) {
+          res.status(result.statusCode || 400).json({
+            error: result.error || "Failed to reset SEO field",
+            noop: result.noop,
+          });
+          return;
+        }
+        res.json({
+          success: true,
+          path: result.relativePath,
+          noop: result.noop,
+          message: result.noop ? result.error : undefined,
+          isVariantLayer: result.isVariantLayer,
+          indexRebuilt: result.indexRebuilt,
+        });
         return;
       }
 
@@ -4047,18 +4125,31 @@ export function registerContentRoutes(app: Express): void {
       }
 
       const confirm = req.body?.confirm === true;
-      const result = reattachEntry({
-        contentType: type,
-        slug,
-        contentRoot: getContentRoot(res),
-        author: auth.author,
-        confirm,
-      });
+      try {
+        const result = reattachEntry({
+          contentType: type,
+          slug,
+          contentRoot: getContentRoot(res),
+          author: auth.author,
+          confirm,
+        });
 
-      getCI(res).refresh();
-      invalidateContentCaches(type, getCI(res));
+        getCI(res).refresh();
+        invalidateContentCaches(type, getCI(res));
 
-      res.json({ success: true, detached: false, ...result });
+        res.json({ success: true, detached: false, ...result });
+      } catch (err) {
+        if (err instanceof ReattachRequiredFieldsError) {
+          res.status(400).json({
+            error: err.message,
+            code: err.code,
+            missing_fields: err.missing_fields,
+            per_locale: err.per_locale,
+          });
+          return;
+        }
+        throw err;
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const status =
@@ -4067,7 +4158,8 @@ export function registerContentRoutes(app: Express): void {
         msg.includes("not a shared-layout") ||
         msg.includes("Invalid entry") ||
         msg.includes("Unknown content type") ||
-        msg.includes("not found")
+        msg.includes("not found") ||
+        msg.includes("reattach_missing_required")
           ? 400
           : 500;
       res.status(status).json({ error: msg });

@@ -7,6 +7,8 @@ import { z } from "zod";
 import { ok, fail } from "../lib/respond.js";
 import { resolveSiteContext } from "../lib/content.js";
 import { getTokenUsername } from "../lib/oauth.js";
+import { denyUnlessContentView } from "../lib/auth.js";
+import type { CatalogGrant } from "../lib/tool-catalog.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 const INTERNAL_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
@@ -26,15 +28,21 @@ function internalHeaders(mcpToken?: string): Record<string, string> {
   return headers;
 }
 
-export function registerEcommerceTools(mcp: McpServer, mcpToken?: string): void {
+export function registerEcommerceTools(
+  mcp: McpServer,
+  mcpToken?: string,
+  grants?: CatalogGrant[],
+): void {
   mcp.tool(
     "get_product_funnel",
-    "Read-only conversion journey for a purchasable product: pages whose _common.yml funnel.products includes this SKU (or all), grouped by funnel.stage, plus the locked product page. Membership is edited per page (Funnel tab / funnel.stage + funnel.products on _common.yml) — not _ecommerce.yml funnel.steps. Does not read single.programs or seo.intent.",
+    "Read-only conversion journey for a purchasable product: pages whose _common.yml funnel.products includes this SKU (or all), grouped by funnel.stage, plus the locked product page. Membership is edited per page (Funnel tab / funnel.stage + funnel.products on _common.yml) — not _ecommerce.yml funnel.steps. Does not read single.programs or seo.intent. Requires content_view.",
     {
       slug: z.string().describe("Product content slug, e.g. ai-fluency"),
       site: z.string().optional().describe('Site domain when multi-site. Always pass site when multiple sites are configured; call list_sites if unsure.'),
     },
     async ({ slug, site }) => {
+      const viewDenied = await denyUnlessContentView(mcpToken, undefined, grants);
+      if (viewDenied) return viewDenied;
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return fail(siteResult.error);
       const domain = siteResult.domain;

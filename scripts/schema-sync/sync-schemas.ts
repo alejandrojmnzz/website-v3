@@ -620,8 +620,13 @@ async function runCheck(componentFilter?: string): Promise<DriftIssue[]> {
   // Collision: same type in shared and any site
   try {
     const { assertNoRegistryCollisionsForAllSites } = await import("../../shared/registry-resolve");
-    const folders = await getSiteFolders();
-    assertNoRegistryCollisionsForAllSites(folders);
+    const { requireSiteConfigs } = await import("../../server/site-config");
+    assertNoRegistryCollisionsForAllSites(
+      requireSiteConfigs().map((s) => ({
+        contentFolder: s.contentFolder,
+        inheritComponentsFrom: s.inheritComponentsFrom,
+      })),
+    );
   } catch (err) {
     issues.push({
       site: "shared∩site",

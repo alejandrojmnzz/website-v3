@@ -72,10 +72,10 @@ function buildSeoContextBlock(): string {
 
   lines.push("\n### Topic clusters");
   lines.push(
-    "Pages declare `seo.pillar` — the URL of the main authority page on this topic. " +
-    "All pages sharing the same pillar form a cluster. The pillar page is the highest-priority " +
-    "page for the topic; cluster pages elaborate and link back to it. " +
-    "A page with no pillar is an orphan — it belongs to no cluster."
+    "Participation is gated by `seo_monitoring.enabled` on each content type in content-types.yml (omitted = off). " +
+    "Hub pages use `seo.is_pillar: true`; members set `seo.pillar_path` to the hub URL (legacy `seo.pillar` still honored). " +
+    "`seo.pillar_path: null` opts a page out of clustering. Empty/missing pillar_path on a monitored type is a gap " +
+    "(ORPHAN_PAGE / PARTIALLY_SET_CLUSTER in validation)."
   );
 
   lines.push("\n### Valid focus features");
@@ -139,14 +139,15 @@ export function formatAsLlmPrompt(result: ValidationRunResult): string {
   const validatorNames = result.validators.map((v) => v.name);
   const persona = getPersona(validatorNames);
 
-  const hasSeoIntent = validatorNames.includes("seo-intent");
+  const hasSeoContext =
+    validatorNames.includes("seo-intent") || validatorNames.includes("seo-cluster");
 
   const sections: string[] = [
     persona,
     REPO_CONTEXT,
   ];
 
-  if (hasSeoIntent) {
+  if (hasSeoContext) {
     const seoBlock = buildSeoContextBlock();
     if (seoBlock) sections.push(seoBlock);
   }
@@ -163,14 +164,14 @@ export function formatAsLlmPrompt(result: ValidationRunResult): string {
 export function formatSingleValidatorAsLlmPrompt(v: ValidatorResult): string {
   const totalIssues = v.errors.length + v.warnings.length;
   const persona = getPersona([v.name]);
-  const hasSeoIntent = v.name === "seo-intent";
+  const hasSeoContext = v.name === "seo-intent" || v.name === "seo-cluster";
 
   const sections: string[] = [
     persona,
     REPO_CONTEXT,
   ];
 
-  if (hasSeoIntent) {
+  if (hasSeoContext) {
     const seoBlock = buildSeoContextBlock();
     if (seoBlock) sections.push(seoBlock);
   }

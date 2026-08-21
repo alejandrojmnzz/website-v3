@@ -63,11 +63,30 @@ export interface DiagnosticsJobRequest {
   cache: ValidationCacheService;
   slugs?: string[];
   urls?: string[];
+  /**
+   * Optional absolute YAML file path to scope the job to a single entry.
+   * When provided, the runner will resolve the file to its canonical URL target.
+   */
+  file?: string;
   freshness?: DiagnosticsFreshness;
   max_age_seconds?: number;
   validators?: string[];
   include_artifacts?: boolean;
   categories?: string[];
+  /**
+   * Required when a new job would start (hard or stale under max_age).
+   * Same-scope reuse and cached responses skip this. On-save callers omit it
+   * (in-process bypass — no HTTP confirm).
+   */
+  confirm?: boolean;
+}
+
+export interface LastFullSiteWideDiagnosticsStats {
+  last_site_wide_run_at: string | null;
+  last_site_wide_run_ago: string;
+  last_site_wide_duration_ms: number | null;
+  last_site_wide_duration_human: string | null;
+  last_site_wide_url_count: number | null;
 }
 
 export interface DiagnosticsJobEnvelope {
@@ -139,7 +158,14 @@ export type StartDiagnosticsResult =
       job_id: string;
       retry_after_seconds: number;
       message: string;
-    };
+    }
+  | ({
+      status: "needs_confirm";
+      code: "confirm_run_diagnostics";
+      message: string;
+      /** True when the request scopes by slugs and/or urls (or file→urls). */
+      scoped: boolean;
+    } & LastFullSiteWideDiagnosticsStats);
 
 const jobsById = new Map<string, DiagnosticsJobRecord>();
 const runningByContentRoot = new Map<string, string>();
@@ -148,6 +174,158 @@ const jobContentRoot = new Map<string, string>();
 const jobChildren = new Map<string, ChildProcess>();
 const jobIdleTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const jobTerminalHandled = new Set<string>();
+const lastCacheReloadByRoot = new Map<string, number>();
+const CACHE_RELOAD_DEBOUNCE_MS = 5_000;
+
+/** Human duration for confirm messages (e.g. "4m 20s", "45s", "never"). */
+export function formatDurationMs(ms: number | null | undefined): string {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return "unknown";
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  if (m < 60) return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
+}
+
+/** Relative ago from an ISO timestamp or epoch ms. */
+export function formatRunAgo(at: string | number | null | undefined): string {
+  if (at == null) return "never";
+  const ms = typeof at === "number" ? at : Date.parse(at);
+  if (!Number.isFinite(ms)) return "never";
+  const diff = Date.now() - ms;
+  if (diff < 0) return "just now";
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} minute${min === 1 ? "" : "s"} ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 48) return `${hr} hour${hr === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hr / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+function isFullSiteWideCompleted(e: DiagnosticsJobEnvelope): boolean {
+  if (e.status !== "completed" || e.completedAt == null) return false;
+  if (e.partial) return false;
+  if (e.slugs && e.slugs.length > 0) return false;
+  if (e.urls && e.urls.length > 0) return false;
+  return true;
+}
+
+/**
+ * Newest completed full site-wide job (no slug/url scope, !partial).
+ * Prefers freshness "hard" when any such job exists.
+ */
+export function getLastFullSiteWideDiagnosticsStats(
+  contentRoot: string,
+): LastFullSiteWideDiagnosticsStats {
+  const candidates = listDiagnosticsJobs(contentRoot).filter(isFullSiteWideCompleted);
+  const hard = candidates.filter((j) => j.freshness === "hard");
+  const best = (hard.length > 0 ? hard : candidates)[0];
+  if (!best || best.completedAt == null) {
+    return {
+      last_site_wide_run_at: null,
+      last_site_wide_run_ago: "never",
+      last_site_wide_duration_ms: null,
+      last_site_wide_duration_human: null,
+      last_site_wide_url_count: null,
+    };
+  }
+  const durationMs = Math.max(0, best.completedAt - best.startedAt);
+  const runAt = new Date(best.completedAt).toISOString();
+  return {
+    last_site_wide_run_at: runAt,
+    last_site_wide_run_ago: formatRunAgo(best.completedAt),
+    last_site_wide_duration_ms: durationMs,
+    last_site_wide_duration_human: formatDurationMs(durationMs),
+    last_site_wide_url_count: best.urlCount ?? null,
+  };
+}
+
+function buildNeedsConfirmResult(
+  contentRoot: string,
+  scoped: boolean,
+): Extract<StartDiagnosticsResult, { status: "needs_confirm" }> {
+  const stats = getLastFullSiteWideDiagnosticsStats(contentRoot);
+  const durationPart =
+    stats.last_site_wide_duration_human != null
+      ? ` and took ${stats.last_site_wide_duration_human}`
+      : "";
+  const urlPart =
+    stats.last_site_wide_url_count != null
+      ? ` (${stats.last_site_wide_url_count} URLs)`
+      : "";
+  const when =
+    stats.last_site_wide_run_at == null
+      ? "No full site-wide diagnostics run recorded yet"
+      : `Last full site-wide run was ${stats.last_site_wide_run_ago}${durationPart}${urlPart}`;
+  const message = `Are you sure you want to run diagnostics? ${when}. Re-call with confirm: true to proceed.`;
+  return {
+    status: "needs_confirm",
+    code: "confirm_run_diagnostics",
+    message,
+    scoped,
+    ...stats,
+  };
+}
+
+/** Debounced disk reload so mid-run polls see worker flushes without hammering IO. */
+export function maybeReloadValidationCache(
+  contentRoot: string,
+  cache: ValidationCacheService,
+): void {
+  const now = Date.now();
+  const last = lastCacheReloadByRoot.get(contentRoot) ?? 0;
+  if (now - last < CACHE_RELOAD_DEBOUNCE_MS) return;
+  lastCacheReloadByRoot.set(contentRoot, now);
+  try {
+    cache.reloadFromDisk();
+  } catch (err) {
+    log.warn({ err, contentRoot }, "Debounced validation-cache reload failed");
+  }
+}
+
+/**
+ * Issues for URLs flushed since this job started (lastFullRunAt >= startedAt).
+ * Used for mid-run GET /diagnostics-jobs/:id partial payloads.
+ */
+export function issuesFlushedSinceJobStart(
+  cache: ValidationCacheService,
+  job: Pick<DiagnosticsJobEnvelope, "startedAt" | "categories">,
+  targets: { url: string; slug: string }[],
+  categories?: string[],
+): Record<string, MappedIssue[]> {
+  const sinceMs = job.startedAt;
+  const flushed = targets.filter((t) => {
+    const entry = cache.getByUrl(t.url);
+    const full = entry?.lastFullRunAt;
+    if (!full) return false;
+    const tMs = Date.parse(full);
+    return Number.isFinite(tMs) && tMs >= sinceMs;
+  });
+  const { issuesBySlug } = issuesBySlugFromTargets(
+    cache,
+    flushed,
+    categories ?? job.categories,
+  );
+  return issuesBySlug;
+}
+
+/** Resolve job scope targets and return issues flushed since job.startedAt. */
+export async function getPartialIssuesForRunningJob(opts: {
+  contentRoot: string;
+  ci: ContentIndex;
+  cache: ValidationCacheService;
+  job: DiagnosticsJobEnvelope | DiagnosticsJobRecord;
+}): Promise<Record<string, MappedIssue[]>> {
+  const { contentRoot, ci, cache, job } = opts;
+  maybeReloadValidationCache(contentRoot, cache);
+  const targets = await resolveUrlTargets(contentRoot, ci, job.slugs, job.urls);
+  return issuesFlushedSinceJobStart(cache, job, targets, job.categories);
+}
 
 function jobsDir(contentRoot: string): string {
   return path.join(contentRoot, ".cache", "diagnostics-jobs");
@@ -227,19 +405,24 @@ function readResultsFromDisk(
 function scopeKey(req: {
   slugs?: string[];
   urls?: string[];
+  files?: string[];
   validators?: string[];
   freshness: DiagnosticsFreshness;
   max_age_seconds: number;
+  validator_only?: boolean;
 }): string {
   const slugs = [...(req.slugs ?? [])].map((s) => s.toLowerCase()).sort();
   const urls = [...(req.urls ?? [])].map((u) => u.toLowerCase()).sort();
+  const files = [...(req.files ?? [])].map((f) => f.toLowerCase()).sort();
   const validators = [...(req.validators ?? [])].map((v) => v.toLowerCase()).sort();
   return JSON.stringify({
     slugs,
     urls,
+    files,
     validators,
     freshness: req.freshness,
     max_age_seconds: req.freshness === "hard" ? 0 : req.max_age_seconds,
+    validator_only: req.validator_only ?? false,
   });
 }
 
@@ -519,7 +702,11 @@ export async function startDiagnosticsJob(
     typeof req.max_age_seconds === "number" && req.max_age_seconds > 0
       ? req.max_age_seconds
       : 86400;
-  const slugFiltered = !!(req.slugs?.length || req.urls?.length);
+  const hasUrlOrSlugScope = !!(req.slugs?.length || req.urls?.length);
+  // Prefer URL/slug scoping whenever available. File scoping is a fallback only.
+  let filePaths = !hasUrlOrSlugScope && req.file ? [req.file] : undefined;
+  let validatorOnly = false;
+  const slugFiltered = !!(req.slugs?.length || req.urls?.length || filePaths?.length);
   const { pageValidators, siteWideValidators, partial } = effectiveValidatorNames(req.validators, {
     slugFiltered,
   });
@@ -536,12 +723,33 @@ export async function startDiagnosticsJob(
     }
   }
 
+  let allTargets = await resolveUrlTargets(
+    req.contentRoot,
+    req.ci,
+    req.slugs,
+    req.urls,
+    filePaths,
+  );
+  if (filePaths && allTargets.length === 0) {
+    const isSharedTemplateFile = /\/(single\.[^/]+\.ya?ml|_common\.single\.ya?ml)$/i.test(
+      req.file ?? "",
+    );
+    if (!isSharedTemplateFile) {
+      throw new Error(`No YAML-backed pages found for file: ${req.file}`);
+    }
+    validatorOnly = true;
+    filePaths = undefined;
+    allTargets = [];
+  }
+
   const key = scopeKey({
     slugs: req.slugs,
     urls: req.urls,
+    files: filePaths,
     validators: req.validators,
     freshness,
     max_age_seconds: maxAge,
+    validator_only: validatorOnly,
   });
 
   const runningId = runningByContentRoot.get(req.contentRoot);
@@ -574,12 +782,14 @@ export async function startDiagnosticsJob(
     }
   }
 
-  const allTargets = await resolveUrlTargets(
-    req.contentRoot,
-    req.ci,
-    req.slugs,
-    req.urls,
-  );
+  // When scoping by a YAML file, resolve it to canonical URL targets so the worker
+  // validates only that single entry (instead of the whole site).
+  const scopedSlugs = validatorOnly
+    ? undefined
+    : req.slugs ?? (filePaths ? allTargets.map((t) => t.slug) : undefined);
+  const scopedUrls = validatorOnly
+    ? undefined
+    : req.urls ?? (filePaths ? allTargets.map((t) => t.url) : undefined);
 
   let staleTargets = allTargets;
   if (!partial && freshness === "max_age") {
@@ -589,10 +799,17 @@ export async function startDiagnosticsJob(
   }
 
   const needsWork =
+    (validatorOnly && pageValidators.length > 0) ||
     (pageValidators.length > 0 && (partial || freshness === "hard" || staleTargets.length > 0)) ||
     (siteWideValidators.length > 0 && (partial || freshness === "hard" || staleTargets.length > 0));
 
-  if (!partial && freshness === "max_age" && staleTargets.length === 0 && allTargets.length > 0) {
+  if (
+    !validatorOnly &&
+    !partial &&
+    freshness === "max_age" &&
+    staleTargets.length === 0 &&
+    allTargets.length > 0
+  ) {
     const { issuesBySlug, lastFullRunAtBySlug, cacheMisses } = issuesBySlugFromTargets(
       req.cache,
       allTargets,
@@ -607,7 +824,7 @@ export async function startDiagnosticsJob(
     };
   }
 
-  if (!needsWork && allTargets.length === 0 && siteWideValidators.length === 0) {
+  if (!needsWork && allTargets.length === 0 && siteWideValidators.length === 0 && !validatorOnly) {
     return {
       status: "cached",
       issuesBySlug: {},
@@ -617,14 +834,24 @@ export async function startDiagnosticsJob(
     };
   }
 
+  // Real job would start — require confirm (HTTP/MCP). In-process callers omit confirm.
+  if (req.confirm !== true) {
+    const scoped = !!(
+      (scopedSlugs && scopedSlugs.length > 0) ||
+      (scopedUrls && scopedUrls.length > 0) ||
+      validatorOnly
+    );
+    return buildNeedsConfirmResult(req.contentRoot, scoped);
+  }
+
   const jobId = `diag-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const job: DiagnosticsJobRecord = {
     jobId,
     status: "queued",
     contentRootName: req.contentRootName,
     scopeKey: key,
-    slugs: req.slugs,
-    urls: req.urls,
+    slugs: scopedSlugs,
+    urls: scopedUrls,
     freshness,
     max_age_seconds: maxAge,
     validators: req.validators,
@@ -632,16 +859,21 @@ export async function startDiagnosticsJob(
     categories: req.categories,
     startedAt: Date.now(),
     processed: 0,
-    total: Math.max(
-      (pageValidators.length > 0
-        ? partial || freshness === "hard"
-          ? allTargets.length
-          : staleTargets.length
-        : 0) + (siteWideValidators.length > 0 ? 1 : 0),
-      1,
-    ),
-    staleUrlCount: staleTargets.length,
-    urlCount: allTargets.length,
+    total: validatorOnly
+      ? Math.max(
+          (pageValidators.length > 0 ? 1 : 0) + (siteWideValidators.length > 0 ? 1 : 0),
+          1,
+        )
+      : Math.max(
+          (pageValidators.length > 0
+            ? partial || freshness === "hard"
+              ? allTargets.length
+              : staleTargets.length
+            : 0) + (siteWideValidators.length > 0 ? 1 : 0),
+          1,
+        ),
+    staleUrlCount: validatorOnly ? 0 : staleTargets.length,
+    urlCount: validatorOnly ? 0 : allTargets.length,
     partial,
     log: [],
   };
@@ -659,13 +891,14 @@ export async function startDiagnosticsJob(
     jobId,
     contentRoot: req.contentRoot,
     contentRootName: req.contentRootName,
-    slugs: req.slugs,
-    urls: req.urls,
+    slugs: scopedSlugs,
+    urls: scopedUrls,
     freshness,
     max_age_seconds: maxAge,
     validators: req.validators,
     include_artifacts: !!req.include_artifacts,
     categories: req.categories,
+    validator_only: validatorOnly,
     resultsPath: resultsFilePath(req.contentRoot, jobId),
   };
 
@@ -674,11 +907,11 @@ export async function startDiagnosticsJob(
   return {
     status: "queued",
     job_id: jobId,
-    retry_after_seconds: retryAfterSeconds(allTargets.length),
+    retry_after_seconds: retryAfterSeconds(validatorOnly ? 1 : allTargets.length),
     scope: {
-      urlCount: allTargets.length,
-      staleUrlCount: staleTargets.length,
-      slugs: req.slugs,
+      urlCount: validatorOnly ? 0 : allTargets.length,
+      staleUrlCount: validatorOnly ? 0 : staleTargets.length,
+      slugs: scopedSlugs,
       validators: req.validators,
       partial,
     },
@@ -780,26 +1013,8 @@ export function listDiagnosticsJobs(contentRoot: string): DiagnosticsJobEnvelope
 
 export function listCacheIssues(
   cache: ValidationCacheService,
-  filters?: {
-    entryKey?: string;
-    url?: string;
-    scope?: import("../../scripts/validation/shared/runClass").ValidationScope;
-    redirect?: string;
-    media?: string;
-    database?: string;
-  },
-): Array<{
-  url: string;
-  entryKey?: string;
-  severity: "error" | "warning";
-  code: string;
-  message: string;
-  validator?: string;
-  category?: string;
-  lastFullRunAt?: string;
-  suggestion?: string;
-  file?: string;
-}> {
+  filters?: import("./validationCacheService").ListCacheIssuesFilters,
+): ReturnType<typeof listCacheIssuesFromStore> {
   return listCacheIssuesFromStore(cache, filters);
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   extractSeoUpdatesFromOps,
+  mergeSeoUpdates,
   migrateMainKeywordInYamlText,
   surgicalReplaceSeoBlock,
   validateSeoSave,
@@ -70,6 +71,15 @@ content: |
   });
 });
 
+describe("mergeSeoUpdates pillar_path null", () => {
+  it("preserves explicit null opt-out separately from empty string", () => {
+    const fromNull = mergeSeoUpdates({}, { pillar_path: null });
+    expect(fromNull.pillar_path).toBeNull();
+
+    const fromEmpty = mergeSeoUpdates({}, { pillar_path: "" });
+    expect(fromEmpty.pillar_path).toBe("");
+  });
+});
 describe("validateSeoSave", () => {
   it("rejects seo on _common.yml", () => {
     const result = validateSeoSave({

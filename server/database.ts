@@ -8,6 +8,7 @@ import { ExternalImageCacher } from "./external-image-cacher";
 import { resolveBySourceUrl } from "./image-registry";
 import { IDatabaseCache, CacheEntry, SqliteCache, CACHE_DIR } from "./db-cache";
 import { markFileAsModified } from "./sync-state";
+import { applyEditorialStampToDbMappedUpdates } from "./editorial-updated-at";
 import { setJobState } from "./db-job-state";
 import type { MediaGallery } from "./media-gallery";
 import { expandEditorFieldTokens } from "@shared/editor-field-values";
@@ -1091,6 +1092,7 @@ export class DatabaseManager {
     contentRoot?: string
   ): boolean {
     try {
+      applyEditorialStampToDbMappedUpdates(mappedUpdates, fieldMapping);
       const dbKeyedOverrides: Record<string, unknown> = {};
       for (const [templateKey, newValue] of Object.entries(mappedUpdates)) {
         const mappedPath = fieldMapping ? fieldMapping[templateKey] : undefined;
@@ -1206,6 +1208,35 @@ export class DatabaseManager {
     } catch {
       return false;
     }
+  }
+
+  /** Sync read of cached mapped items for seo-index rebuild (empty when cache is cold). */
+  getMappedItemsFromCacheSync(contentType: string): Record<string, unknown>[] {
+    const ctConfig = getContentTypeConfig(contentType, this.contentRoot);
+    if (!ctConfig?.database?.slug) return [];
+    const dbName = ctConfig.database.slug;
+    if (!this.exists(dbName)) return [];
+
+    const memEntry = this.memoryCache.get(dbName);
+    let rawItems: Record<string, unknown>[] | undefined = memEntry?.data?.items as
+      | Record<string, unknown>[]
+      | undefined;
+    if (!rawItems?.length) {
+      const cached = this.cache.read(dbName, Infinity);
+      rawItems = cached?.items as Record<string, unknown>[] | undefined;
+    }
+    if (!rawItems?.length) return [];
+
+    const ctMapping = getFieldMapping(contentType, this.contentRoot);
+    const fullMapping = getFullFieldMapping(contentType, this.contentRoot);
+    if (
+      (!ctMapping || Object.keys(ctMapping).length === 0) &&
+      !fullMapping?.[RESERVED_IMAGE_FIELD] &&
+      !fullMapping?.[RESERVED_SLUG_FIELD]
+    ) {
+      return rawItems;
+    }
+    return applyContentTypeMapping(rawItems, ctMapping || {}, contentType, fullMapping);
   }
 }
 

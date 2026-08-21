@@ -115,6 +115,8 @@ import {
 } from "@shared/joinFormSettingsPath";
 import type { TrackingSettingsResponse } from "@/lib/tracking";
 import { collectExtraConsentYamlFields, consentCardChannels, consentKeyFromYamlField, parseConsentSettingsResponse } from "@shared/consent-settings";
+import { resolveBoundCtaPaths } from "@shared/validateCtaTracking";
+import { showEcommerceEditorTab } from "@shared/wipeOnDuplicate";
 
 function safeYamlLoad(yamlStr: string): unknown {
   const { escaped, map } = escapeTemplateVars(yamlStr);
@@ -1992,23 +1994,11 @@ export function SectionEditorPanel({
     return globalPath;
   })();
 
-  const ctaTrackingPaths: string[] = (() => {
-    const rawFields = allFieldEditors?.[sectionType] || {};
-    const currentVariant = (parsedSection as Record<string, unknown>)?.variant as string | undefined;
-    const paths: string[] = [];
-    for (const [fieldPath, editorType] of Object.entries(rawFields)) {
-      if (String(editorType).split(":")[0] !== "cta-tracking") continue;
-      const colonIndex = fieldPath.indexOf(":");
-      if (colonIndex > 0 && !fieldPath.startsWith("color-picker:")) {
-        const variantPrefix = fieldPath.substring(0, colonIndex);
-        const actualPath = fieldPath.substring(colonIndex + 1);
-        if (!currentVariant || currentVariant === variantPrefix) paths.push(actualPath);
-      } else {
-        paths.push(fieldPath);
-      }
-    }
-    return paths;
-  })();
+  const sectionFieldEditors = allFieldEditors?.[sectionType] || {};
+  const currentEditorVariant = (parsedSection as Record<string, unknown>)?.variant as
+    | string
+    | undefined;
+  const ctaTrackingPaths = resolveBoundCtaPaths(sectionFieldEditors, currentEditorVariant);
 
   const { data: componentRegistryData } = useQuery<{
     components: Array<{ type: string; behaviors?: string[] }>;
@@ -2022,6 +2012,19 @@ export function SectionEditorPanel({
     ),
   );
 
+  const showFormsTab = formSettingsPath !== null;
+  const showEcommerceTab = showEcommerceEditorTab(sectionFieldEditors, currentEditorVariant);
+
+  useEffect(() => {
+    if (activeTab === "ecommerce" && !showEcommerceTab) {
+      setActiveTab("props");
+      return;
+    }
+    if (activeTab === "conversion" && !showFormsTab) {
+      setActiveTab("props");
+    }
+  }, [activeTab, showEcommerceTab, showFormsTab]);
+
   const { data: ecommerceProductsData } = useQuery<{
     products: Array<{
       product_id: string;
@@ -2033,11 +2036,8 @@ export function SectionEditorPanel({
   }>({
     queryKey: ["/api/ecommerce/products"],
     staleTime: 60000,
-    enabled: hasEcommerceBehavior || ctaTrackingPaths.length > 0,
+    enabled: showEcommerceTab,
   });
-
-  const showFormsTab = formSettingsPath !== null;
-  const showEcommerceTab = ctaTrackingPaths.length > 0 || hasEcommerceBehavior;
   const editorTabCount = 2 + (showFormsTab ? 1 : 0) + (showEcommerceTab ? 1 : 0);
 
   // Join helper: "" means form settings at section root (lead_form).
@@ -8109,6 +8109,13 @@ export function SectionEditorPanel({
             <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm text-muted-foreground">
               <p className="text-foreground font-medium">How ecommerce differs from Forms</p>
               <p>
+                This tab appears only when the current variant binds{" "}
+                <code className="text-xs bg-muted px-1 rounded">cta-tracking</code> or{" "}
+                <code className="text-xs bg-muted px-1 rounded">ecommerce-products</code>
+                {" "}(hero: course CTA; enrollment: summary CTAs; pricing plans: product field).
+                CTA-only heroes have no Ecommerce tab.
+              </p>
+              <p>
                 Ecommerce funnel events are purchasable-gated and separate from lead Forms.
                 Products need <code className="text-xs bg-muted px-1 rounded">_ecommerce.yml</code> with{" "}
                 <code className="text-xs bg-muted px-1 rounded">purchasable: true</code>.
@@ -8120,6 +8127,7 @@ export function SectionEditorPanel({
                   <li>shared/component-behaviors.ts</li>
                   <li>client/src/lib/tracking.ts</li>
                   <li>docs/component-behaviors.md</li>
+                  <li>shared/component-registry/hero/v1.0/field-editors.ts</li>
                 </ul>
               </details>
             </div>

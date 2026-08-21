@@ -11,6 +11,7 @@ import {
   inspectAndStore,
   isGscPropertyAccessDenied,
   isPreviewLoc,
+  isStale,
   type InspectUrlResult,
 } from "./gsc-url-inspection";
 
@@ -19,8 +20,8 @@ const log = child({ module: "gsc-inspect-queue" });
 export const GSC_INSPECT_INTERVAL_MS = 1500;
 export const GSC_INSPECT_MAX_PER_JOB = 2000;
 
-export type GscInspectMode = "never" | "all";
-export type GscInspectAborted = "permission_denied" | null;
+export type GscInspectMode = "never" | "stale" | "all";
+export type GscInspectAborted = "permission_denied" | "cancelled" | null;
 
 export interface GscInspectQueueStats {
   pending: number;
@@ -152,7 +153,9 @@ export function selectGscInspectLocs(opts: {
   const selected =
     opts.mode === "never"
       ? publicLocs.filter((loc) => !getRecord(opts.contentRootName, loc))
-      : publicLocs;
+      : opts.mode === "stale"
+        ? publicLocs.filter((loc) => isStale(getRecord(opts.contentRootName, loc)))
+        : publicLocs;
 
   const capped = selected.length > max;
   return {
@@ -283,6 +286,28 @@ export function enqueueGscInspects(opts: {
   }
 
   return result;
+}
+
+/**
+ * Stop the bulk inspect job. Drops remaining pending URLs; rows already written stay.
+ * The in-flight Google call (if any) may still finish and write its sidecar row.
+ */
+export function cancelGscInspects(): { stopped: boolean; queue: GscInspectQueueStats } {
+  if (!isRunning()) {
+    return { stopped: false, queue: getGscInspectQueueStats() };
+  }
+
+  const dropped = job.pending.length + (job.active ? 1 : 0);
+  pumpGeneration += 1;
+  job.pending = [];
+  job.active = null;
+  job.pumping = false;
+  job.aborted = "cancelled";
+  log.info(
+    { dropped, completed: job.completed, failed: job.failed, contentRootName: job.contentRootName },
+    "GSC inspect queue cancelled by user",
+  );
+  return { stopped: true, queue: getGscInspectQueueStats() };
 }
 
 export function setGscInspectQueueHooksForTests(hooks: {

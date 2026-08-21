@@ -1,9 +1,13 @@
-import { useState, useRef, useEffect, lazy, Suspense } from "react";
+import React, { useState, useRef, useEffect, lazy, Suspense, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import type { ImageRef, ImageEntry, ImagePreset } from "@shared/schema";
 import SolidCard from "./SolidCard";
+import { BrokenImage, type BrokenImageReason } from "./BrokenImage";
 import { useSectionContext } from "@/contexts/SectionContext";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
+import { useContentTypes } from "@/hooks/useContentTypes";
+import { detectContentInfo } from "@/components/DebugBubble/utils/debugHelpers";
 import { Pencil, CheckCircle2, Clock, AlertCircle, Unlink, ExternalLink, ShieldCheck, Shield, ChevronDown } from "lucide-react";
 import { editContent } from "@/lib/contentApi";
 import { emitContentUpdated } from "@/lib/contentEvents";
@@ -62,6 +66,37 @@ export function useImageRegistry() {
   })();
 
   return { registry, loading: isLoading, reverseMap };
+}
+
+/** Visitor-facing (SSR) image subset for the current public page — edit-mode blank detection. */
+export function useVisitorImageRegistry(opts: {
+  contentType?: string;
+  slug?: string;
+  locale?: string;
+  enabled?: boolean;
+}) {
+  const { contentType, slug, locale = "en", enabled = false } = opts;
+  const { data, isLoading, isFetched } = useQuery<ImageRegistryData>({
+    queryKey: ["/api/image-registry", "visitor-subset", contentType, slug, locale],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        contentType: contentType!,
+        slug: slug!,
+        locale,
+      });
+      const res = await fetch(`/api/image-registry/visitor-subset?${params.toString()}`);
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<ImageRegistryData>;
+    },
+    enabled: enabled && !!contentType && !!slug,
+    staleTime: Infinity,
+  });
+
+  return {
+    visitorSubset: data ?? null,
+    visitorSubsetLoading: enabled && !!contentType && !!slug && isLoading,
+    visitorSubsetReady: !enabled || !contentType || !slug || isFetched,
+  };
 }
 
 interface FieldContext {
@@ -139,6 +174,28 @@ export function UniversalImage({
     new URLSearchParams(window.location.search).get("capture") === "1";
   const showEditChrome = isEditMode && !isCaptureMode;
   const { toast } = useToast();
+
+  const [pathname] = useLocation();
+  const contentTypesMap = useContentTypes();
+  const detectedContent = useMemo(
+    () => detectContentInfo(pathname, contentTypesMap),
+    [pathname, contentTypesMap],
+  );
+  const visitorContentType = sectionContentType || detectedContent.type || "";
+  const visitorSlug = sectionSlug || detectedContent.slug || "";
+  const visitorLocale =
+    (sectionLocale && sectionLocale.trim()) ||
+    (typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("locale") || undefined
+      : undefined) ||
+    "en";
+
+  const { visitorSubset, visitorSubsetLoading, visitorSubsetReady } = useVisitorImageRegistry({
+    contentType: visitorContentType,
+    slug: visitorSlug,
+    locale: visitorLocale,
+    enabled: showEditChrome,
+  });
 
   // Derive the template key from fieldContext + the section's _variableKeys map from context.
   // _variableKeys maps dotPath → templateKey (e.g. "image.src" → "image").
@@ -231,11 +288,36 @@ export function UniversalImage({
     );
   }
 
+  if (showEditChrome && !isDirectUrl && visitorSubsetLoading) {
+    return (
+      <div
+        className={`bg-muted animate-pulse ${className}`}
+        data-testid={`img-skeleton-${id}`}
+      />
+    );
+  }
+
   const imageEntry = registry?.images?.[resolvedId] ?? (isDirectUrl ? reverseMap.get(resolvedId) : undefined) ?? undefined;
   const isDirectPath = !imageEntry && isDirectUrl;
 
+  const inVisitorSubset = (() => {
+    if (isDirectUrl) return true;
+    if (!visitorSubsetReady || !visitorSubset?.images) return true; // don't false-positive while unknown
+    return !!visitorSubset.images[resolvedId];
+  })();
+
+  const renderBroken = (reason: BrokenImageReason) => (
+    <BrokenImage id={resolvedId} reason={reason} className={className} style={style} />
+  );
+
   if (!imageEntry && !isDirectPath) {
+    if (showEditChrome) return renderBroken("unknown");
     return null;
+  }
+
+  // Id exists in the full gallery but would be blank on the public page
+  if (showEditChrome && !isDirectUrl && visitorSubsetReady && visitorSubset && !inVisitorSubset) {
+    return renderBroken("visitor-blank");
   }
 
   const presetConfig = registry?.presets?.[preset];
@@ -279,6 +361,7 @@ export function UniversalImage({
     : {};
 
   if (hasError) {
+    if (showEditChrome) return renderBroken("load-failed");
     return null;
   }
 

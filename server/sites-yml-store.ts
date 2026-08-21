@@ -287,7 +287,7 @@ export function diffSitesYmlStructure(repoContent: string, canonicalContent: str
     if (!repoDomains.includes(d)) diffs.push(`site "${d}" exists in the GCS copy but not in repo sites.yml`);
   }
 
-  const FIELDS = ["content_folder", "github_repo_url", "fallback_content_folder"] as const;
+  const FIELDS = ["content_folder", "github_repo_url", "fallback_content_folder", "inherit_components_from"] as const;
   for (const d of repoDomains) {
     if (!gcsDomains.includes(d)) continue;
     const repoSite = (repoParsed[d] ?? {}) as Record<string, unknown>;

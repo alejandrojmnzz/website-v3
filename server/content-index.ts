@@ -146,6 +146,8 @@ export class ContentIndex {
   private slowScanTimer: ReturnType<typeof setTimeout> | null = null;
   private slowScanRunning = false;
   private slowScanQueued = false;
+  private refreshRunning = false;
+  private refreshQueued = false;
   private static readonly SLOW_SCAN_DEBOUNCE_MS = 250;
 
   /** Absolute path to the content root folder (e.g. /home/user/project/content). */
@@ -408,8 +410,54 @@ export class ContentIndex {
             this.extractSeoData(parsed, entry.slug, entry.contentType, relFilePath);
           }
           if (parsed && this.contentTypeHasRedirects(entry.contentType)) {
-            const localeSlugForRedirect = (parsed.slug && typeof parsed.slug === "string") ? parsed.slug : entry.slug;
-            this.extractRedirects(parsed, entry.slug, locale, entry.contentType, relFilePath, localeSlugForRedirect, nextRedirects);
+            const baseName = file.replace(/\.(yml|yaml)$/i, "");
+            const isLiveLocale = /^[a-z]{2}(-[a-z]{2})?$/i.test(baseName);
+            const variantLocaleMatch = !isLiveLocale
+              ? baseName.match(/(?:^|\.)([a-z]{2}(?:-[a-z]{2})?)$/i)
+              : null;
+            const isVariantLayer =
+              !isLiveLocale &&
+              (Boolean(variantLocaleMatch) ||
+                /^single\.[a-z0-9-]+\./i.test(baseName) ||
+                /^[a-z0-9-]+\.[a-z]{2}/i.test(baseName));
+            if (isVariantLayer && variantLocaleMatch) {
+              const liveLocale = variantLocaleMatch[1]!;
+              const hasLive =
+                entry.files.some(
+                  (f) =>
+                    f === `${liveLocale}.yml` ||
+                    f === `${liveLocale}.yaml` ||
+                    f === `single.${liveLocale}.yml` ||
+                    f === `single.${liveLocale}.yaml`,
+                ) || entry.locales.includes(liveLocale);
+              if (hasLive) {
+                // Redirects on variant overlays are ignored when a live locale exists.
+              } else {
+                const localeSlugForRedirect =
+                  parsed.slug && typeof parsed.slug === "string" ? parsed.slug : entry.slug;
+                this.extractRedirects(
+                  parsed,
+                  entry.slug,
+                  liveLocale,
+                  entry.contentType,
+                  relFilePath,
+                  localeSlugForRedirect,
+                  nextRedirects,
+                );
+              }
+            } else if (isLiveLocale || baseName === "_common") {
+              const localeSlugForRedirect =
+                parsed.slug && typeof parsed.slug === "string" ? parsed.slug : entry.slug;
+              this.extractRedirects(
+                parsed,
+                entry.slug,
+                baseName,
+                entry.contentType,
+                relFilePath,
+                localeSlugForRedirect,
+                nextRedirects,
+              );
+            }
           }
           // Refine localeSlugMap with accurate YAML-parsed values
           if (parsed?.slug && typeof parsed.slug === "string") {
@@ -1486,7 +1534,19 @@ export class ContentIndex {
   }
 
   refresh(): void {
-    this.scan();
+    if (this.refreshRunning) {
+      this.refreshQueued = true;
+      return;
+    }
+    this.refreshRunning = true;
+    try {
+      do {
+        this.refreshQueued = false;
+        this.scan();
+      } while (this.refreshQueued);
+    } finally {
+      this.refreshRunning = false;
+    }
     invalidateStaticListingCache(undefined, this.contentRoot);
     void import("./html-page-cache")
       .then(({ invalidateHtmlPageCache }) => invalidateHtmlPageCache())

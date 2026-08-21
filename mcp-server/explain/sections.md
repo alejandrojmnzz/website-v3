@@ -81,6 +81,43 @@ Long-form pages often insert a CTA between two halves of an article. Use **two (
 
 Types with `database.slug` **or** `single_template: true` (e.g. static `blog`) render sections from shared `single.{locale}.yml` (plus optional per-entry overlays when detached). Changes to the shared single affect **all attached** entries. Per-entry YAML **does** exist for static shared-layout types (`_common.yml` + `{locale}.yml`) and holds locale fields such as `title` / `content` — not a full page shell. See `explain_site` topic `shared-layout`.
 
+## In-page CTA / link URLs
+
+CTA and link `url` fields accept more than page paths. Runtime: `client/src/hooks/useInternalNav.ts`. Modals: `client/src/components/modal/variants/ModalDefault.tsx` (opens when `location.hash` equals the modal’s `section_id`).
+
+| `url` value | Effect |
+|---|---|
+| `#section_id` | If target section `type: modal` → open overlay; else smooth-scroll to that section |
+| `#top` / `#bottom` | Scroll to top or bottom of the page (built-ins — not YAML `section_id`s) |
+| `inline#section_id` | Render that section inline (no navigation) |
+| `/en/…` or `/es/…` | Internal page navigation |
+| `https://…` | External link |
+| `#section_id?key=val` | Hash target + merge query params into the current URL |
+
+**Rules for agents:**
+
+- A `type: modal` section **must** have an explicit `section_id`. Without it, `#…` cannot open the modal. `add_section` / `replace_entry_sections` may return `modal_missing_section_id`.
+- Prefer an explicit `section_id` on scroll targets too. Runtime falls back to `{type}-{index}` (e.g. `hero-0`), but the `broken-anchors` validator only accepts anchors that match a YAML `section_id`.
+- Wire CTAs with `url: "#that-exact-id"` (hash, not a path). Hyphens in the id are fine (`apply-modal`).
+
+```yaml
+sections:
+  - type: hero
+    # …
+    data:
+      cta_button:
+        text: Apply now
+        url: "#apply-modal"
+        tracking: none
+
+  - type: modal
+    section_id: apply-modal
+    heading: Apply
+    form: { … }
+```
+
+Staff LinkPicker (Modal / Section / inline) writes the same schemes. Schema discovery: `get_component_schema` → `modal`; CTA `url` describe on shared CTA button schema.
+
 ## Images in sections
 
 Always reference images by `image_id` (registry ID), never by raw path. The `UniversalImage` component resolves the ID at render time. See the `images` topic for details.

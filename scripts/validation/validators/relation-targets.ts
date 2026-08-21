@@ -174,6 +174,7 @@ export const relationTargetsValidator: Validator = {
     let missing = 0;
 
     for (const file of context.contentFiles) {
+      if (skipCrossEntryVariantRow(file)) continue;
       if (!file.type) continue;
       if (isSharedSingleTemplate(file.filePath)) continue;
       const config = getContentTypeConfig(file.type, context.contentRoot) ?? configs[file.type];

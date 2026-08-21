@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useSearch } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import {
   ArrowDown,
   ArrowUp,
@@ -86,7 +86,6 @@ import { referrerDisplayHost } from "./runtime-issues-referrer";
 import { RuntimeIssueListFiltersDialog } from "./RuntimeIssueListFiltersDialog";
 import { RuntimeIssueIngestionFiltersDialog } from "./RuntimeIssueIngestionFiltersDialog";
 import { RuntimeIssueIgnoreRulesDialog } from "./RuntimeIssueIgnoreRulesDialog";
-import { RuntimeIssueIgnoreSuggestDialog } from "./RuntimeIssueIgnoreSuggestDialog";
 import type { ByHour, RuntimeIssueProbe } from "@shared/runtime-issues";
 import type { IgnoreRule, IgnoreRuleInput } from "@shared/runtime-issues-ignore";
 import { aggregateHitsByDay, isRuntimeIssueProbeSuccess, localePrefixFromPath } from "@shared/runtime-issues";
@@ -564,7 +563,6 @@ export default function RuntimeIssuesTab() {
   const [listFiltersOpen, setListFiltersOpen] = useState(false);
   const [ingestionOpen, setIngestionOpen] = useState(false);
   const [ignoreRulesOpen, setIgnoreRulesOpen] = useState(false);
-  const [ignoreFingerprints, setIgnoreFingerprints] = useState<string[]>([]);
   const [redirectFrom, setRedirectFrom] = useState<{ path: string; fingerprint: string } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [probingIds, setProbingIds] = useState<Set<string>>(new Set());
@@ -778,10 +776,9 @@ export default function RuntimeIssuesTab() {
     },
     onSuccess: (body) => {
       void queryClient.invalidateQueries({ queryKey: ["/api/admin/runtime-issues"] });
-      setIgnoreFingerprints([]);
       setSelected(new Set());
       toast({
-        title: "Ignore rule saved",
+        title: "Ignored selected paths",
         description: `${body.removed} matching 404${body.removed === 1 ? "" : "s"} removed from the log.`,
       });
     },
@@ -819,6 +816,27 @@ export default function RuntimeIssuesTab() {
 
   const issues = data?.issues ?? [];
   const filtersActive = isRuntimeIssueFiltersActive(filters);
+
+  function ignoreExactPaths(fingerprints: string[]) {
+    const wanted = new Set(fingerprints);
+    const rows = issues.filter((row) => wanted.has(row.fingerprint));
+    if (!rows.length) {
+      toast({
+        title: "Ignore failed",
+        description: "No matching 404s found",
+        variant: "destructive",
+      });
+      return;
+    }
+    ignoreMutation.mutate({
+      rules: rows.map((row) => ({
+        kind: "exact" as const,
+        path: row.path,
+        label: rows.length === 1 ? "This path only" : `This path only: ${row.path}`,
+      })),
+      seedPaths: rows.map((row) => row.path),
+    });
+  }
 
   const locales = useMemo(() => {
     const set = uniqueSorted(issues.map((i) => i.locale));
@@ -1017,9 +1035,8 @@ export default function RuntimeIssuesTab() {
                 chip, and table. <strong>Pagination</strong> affects the table only. CSV export still
                 includes every filtered row. Pages only hides file URLs (including Internal).{" "}
                 <strong>Ingestion Filters</strong> skip future digestion for scrapers.{" "}
-                <strong>Ignore rules</strong> mute matching URLs from this log going forward (exact path,
-                both locales, or selected slugs — not a freeform regex). They survive Reset 404 log. Not a
-                redirect. Built-in scraper/probe drops are separate. Needs SEO edit to mute; Metrics Viewer
+                <strong>Ignore rules</strong> mute the selected exact path(s) from this log going forward.
+                They survive Reset 404 log. Not a redirect. Built-in scraper/probe drops are separate. Needs SEO edit to mute; Metrics Viewer
                 is read-only here. Hide scrapers is on by default; turning it off starts recording
                 Ahrefs/<code className="text-xs font-mono">curl</code>/etc. and adds 1 to the ingest badge;
                 turning it on again does not wipe old rows. File 404s from a 4Geeks referrer are still
@@ -1066,7 +1083,7 @@ export default function RuntimeIssuesTab() {
                   </li>
                   <li>
                     <code>POST /api/admin/runtime-issues/drop-scrapers</code>,{" "}
-                    <code>…/ignore-suggest</code> (no write), <code>…/ignore</code> and{" "}
+                    <code>…/ignore</code> and{" "}
                     <code>…/unignore</code> (<code>seo_edit</code>)
                   </li>
                   <li>
@@ -1165,6 +1182,12 @@ export default function RuntimeIssuesTab() {
             <IconTrash className="h-4 w-4 mr-1.5" />
             Reset 404 log
           </Button>
+          <Button variant="outline" size="sm" asChild data-testid="button-runtime-redirects">
+            <Link href="/private/redirects">
+              <Route className="h-4 w-4 mr-1.5" />
+              Redirects
+            </Link>
+          </Button>
         </div>
       </div>
 
@@ -1202,10 +1225,15 @@ export default function RuntimeIssuesTab() {
               variant="outline"
               size="sm"
               className="h-8"
-              onClick={() => setIgnoreFingerprints(Array.from(selected))}
+              disabled={ignoreMutation.isPending || selected.size === 0}
+              onClick={() => ignoreExactPaths(Array.from(selected))}
               data-testid="button-runtime-bulk-ignore"
             >
-              <EyeOff className="h-3.5 w-3.5 mr-1.5" />
+              {ignoreMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <EyeOff className="h-3.5 w-3.5 mr-1.5" />
+              )}
               Ignore selected
             </Button>
           ) : null}
@@ -1304,8 +1332,8 @@ export default function RuntimeIssuesTab() {
                             fingerprint={issue.fingerprint}
                             onAddRedirect={(path, fingerprint) => setRedirectFrom({ path, fingerprint })}
                             onIgnore={
-                              canIgnore
-                                ? (fingerprint) => setIgnoreFingerprints([fingerprint])
+                              canIgnore && !ignoreMutation.isPending
+                                ? (fingerprint) => ignoreExactPaths([fingerprint])
                                 : undefined
                             }
                           />
@@ -1472,15 +1500,6 @@ export default function RuntimeIssuesTab() {
         canRemove={canIgnore}
         unignorePending={unignoreMutation.isPending}
         onRemove={(id) => unignoreMutation.mutate(id)}
-      />
-      <RuntimeIssueIgnoreSuggestDialog
-        open={ignoreFingerprints.length > 0}
-        fingerprints={ignoreFingerprints}
-        pending={ignoreMutation.isPending}
-        onOpenChange={(open) => {
-          if (!open) setIgnoreFingerprints([]);
-        }}
-        onConfirm={(rules, seedPaths) => ignoreMutation.mutate({ rules, seedPaths })}
       />
     </div>
   );

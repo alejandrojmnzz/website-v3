@@ -2,6 +2,7 @@ import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes, startBackgroundSync } from "./routes/index";
 import { setupVite, serveStatic, log } from "./vite";
+import { registerDevViteForHubRender } from "./render-hub-html";
 import type { ViteDevServer } from "vite";
 import { fallbackRedirectMiddleware } from "./redirects";
 import { initialDataMiddleware } from "./initial-data-middleware";
@@ -22,6 +23,7 @@ import {
 } from "./runtime-issues-store";
 import { loadFormStateFromBucket, updateFormStateForFile } from "./form-state";
 import { loadValidationCachesFromBucket, shutdownValidationCaches } from "./services/validationCacheService";
+import { loadGscInspectionStoresFromBucket } from "./gsc-url-inspection";
 import { addFileModifiedListener } from "./sync-state";
 import { gcs } from "./gcs";
 import { getVersioningManager } from "./versioning/VersioningManager";
@@ -336,7 +338,12 @@ app.use((req, res, next) => {
   // Shared vs site registry types must not collide
   const { assertNoRegistryCollisionsForAllSites } = await import("../shared/registry-resolve");
   const { getSiteConfigs } = await import("./site-config");
-  assertNoRegistryCollisionsForAllSites(getSiteConfigs().map((s) => s.contentFolder));
+  assertNoRegistryCollisionsForAllSites(
+    getSiteConfigs().map((s) => ({
+      contentFolder: s.contentFolder,
+      inheritComponentsFrom: s.inheritComponentsFrom,
+    })),
+  );
 
   app.use(siteResolutionMiddleware);
 
@@ -397,6 +404,7 @@ app.use((req, res, next) => {
   let devVite: ViteDevServer | null = null;
   if (app.get("env") === "development") {
     devVite = await setupVite(app, server);
+    registerDevViteForHubRender(devVite);
   } else {
     serveStatic(app);
   }
@@ -431,6 +439,12 @@ app.use((req, res, next) => {
   // always available at request time with zero filesystem I/O.
   scanEcommerceContent();
   startEcommerceWatcher();
+
+  await loadGscInspectionStoresFromBucket(
+    [...getSiteContextMap().values()].map((ctx) => ctx.contentRootName),
+  ).catch((err) => {
+    logger.error({ err, worker: "GscInspection" }, "failed to load Search Console inspection cache from GCS");
+  });
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.

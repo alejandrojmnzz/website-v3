@@ -16,6 +16,10 @@
 #     fallback_content_folder: site_<parent>  (optional)
 #       When an image_id is missing in this site's image-registry.json,
 #       resolve it from the named site's registry (else the default/first site).
+#     inherit_components_from: site_<parent>  (optional)
+#       Use the named site's component-registry for schema / field-editors /
+#       examples. One hop only; parent must own a registry. When set, this site
+#       must not have a local component-registry/ directory.
 
 bucket_name: my-gcs-bucket-name
 
@@ -27,3 +31,4 @@ fl.example.com:
   content_folder: site_example-florida
   github_repo_url: https://github.com/org/example-content
   fallback_content_folder: site_example-com
+  inherit_components_from: site_example-com

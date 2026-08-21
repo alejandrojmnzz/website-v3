@@ -8,7 +8,7 @@ import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
 import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
-import { getFolder, isValidType } from "./content-types";
+import { getFolder, isValidType, getContentTypeConfig } from "./content-types";
 import { contentIndex } from "./content-index";
 import { getDefaultContentRoot } from "./site-config";
 import { markFileAsModified } from "./sync-state";
@@ -20,6 +20,134 @@ import {
 } from "./shared-layout-entry";
 import { canonicalSectionId } from "./utils/sectionIdentity";
 import { child } from "./logger";
+import { deepMerge } from "./utils/deepMerge";
+import {
+  validateRequiredFields,
+  type EditorRequiredHint,
+} from "@shared/validateRequiredFields";
+import { getTrackingSettings } from "./settings";
+
+export const REATTACH_MISSING_REQUIRED_FIELDS_CODE =
+  "reattach_missing_required_fields" as const;
+
+export class ReattachRequiredFieldsError extends Error {
+  readonly code = REATTACH_MISSING_REQUIRED_FIELDS_CODE;
+  readonly missing_fields: string[];
+  readonly per_locale: Record<string, string[]>;
+
+  constructor(opts: {
+    message: string;
+    missing_fields: string[];
+    per_locale: Record<string, string[]>;
+  }) {
+    super(opts.message);
+    this.name = "ReattachRequiredFieldsError";
+    this.missing_fields = opts.missing_fields;
+    this.per_locale = opts.per_locale;
+  }
+}
+
+const LIVE_LOCALE_FILE_RE = /^[a-z]{2}(?:-[a-zA-Z]+)?\.ya?ml$/i;
+
+function listLiveLocaleStems(entryDir: string): string[] {
+  if (!fs.existsSync(entryDir)) return [];
+  const out: string[] = [];
+  for (const f of fs.readdirSync(entryDir)) {
+    if (!LIVE_LOCALE_FILE_RE.test(f)) continue;
+    out.push(f.replace(/\.ya?ml$/i, ""));
+  }
+  return out.sort();
+}
+
+function trackingSemantics(contentRoot: string): {
+  conversionNames: string[];
+  crmTags: string[];
+} {
+  try {
+    const tracking = getTrackingSettings(contentRoot);
+    const conversionNames = (tracking.conversion_events || [])
+      .map((e) => (typeof e === "string" ? e : (e as { name?: string })?.name))
+      .filter((n): n is string => typeof n === "string" && n.trim().length > 0);
+    const crmTags = Array.isArray(tracking.leads_expected_tags)
+      ? tracking.leads_expected_tags.filter((t): t is string => typeof t === "string")
+      : [];
+    return { conversionNames, crmTags };
+  } catch {
+    return { conversionNames: [], crmTags: [] };
+  }
+}
+
+/**
+ * Before re-attach: every live locale must satisfy editor.required fields that will
+ * apply once attached (isDetached: false). Draft/variant files are ignored.
+ */
+export function assertReattachRequiredFields(opts: {
+  contentType: string;
+  slug: string;
+  contentRoot: string;
+  entryDir: string;
+}): void {
+  const { contentType, slug, contentRoot, entryDir } = opts;
+  const config = getContentTypeConfig(contentType, contentRoot);
+  const editor = (config?.editor || {}) as Record<string, EditorRequiredHint>;
+  const semantics = trackingSemantics(contentRoot);
+  const common = loadYamlFile(path.join(entryDir, "_common.yml")) ?? {};
+  const { detached: _d, ...commonSansDetached } = common;
+
+  const liveLocales = listLiveLocaleStems(entryDir);
+  if (liveLocales.length === 0) {
+    throw new Error(
+      `Cannot re-attach "${slug}": no live locale files found under ${contentType}/${slug}.`,
+    );
+  }
+
+  const per_locale: Record<string, string[]> = {};
+  const missing_fields: string[] = [];
+  const okLocales: string[] = [];
+  const badSummaries: string[] = [];
+
+  for (const locale of liveLocales) {
+    const localeData =
+      loadYamlFile(path.join(entryDir, `${locale}.yml`)) ??
+      loadYamlFile(path.join(entryDir, `${locale}.yaml`)) ??
+      {};
+    const merged = deepMerge(commonSansDetached, localeData) as Record<string, unknown>;
+    const result = validateRequiredFields(editor, merged, "publish", {
+      isSharedLayout: true,
+      isDetached: false,
+      ...semantics,
+    });
+    if (result.ok) {
+      per_locale[locale] = [];
+      okLocales.push(locale);
+      continue;
+    }
+    const fields = result.errors.map((e) => e.field);
+    per_locale[locale] = fields;
+    for (const f of fields) {
+      missing_fields.push(`${locale}.${f}`);
+    }
+    badSummaries.push(
+      `live locale \`${locale}\` is missing or invalid attached-required fields: ${fields.map((f) => `\`${f}\``).join(", ")}`,
+    );
+  }
+
+  if (missing_fields.length === 0) return;
+
+  const okBit =
+    okLocales.length > 0
+      ? ` Locale${okLocales.length === 1 ? "" : "s"} ${okLocales.map((l) => `\`${l}\``).join(", ")} ${okLocales.length === 1 ? "is" : "are"} OK.`
+      : "";
+
+  throw new ReattachRequiredFieldsError({
+    message:
+      `Cannot re-attach \`${contentType}/${slug}\`: ${badSummaries.join(". ")}.` +
+      okBit +
+      ` Fill Fields on each live locale, then retry reattach. (\`editor.required: attached\` / \`true\` as configured)`,
+    missing_fields,
+    per_locale,
+  });
+}
 
 const log = child({ module: "shared-layout-detach" });
 
@@ -220,6 +348,8 @@ export function reattachEntry(params: ReattachEntryParams): ReattachEntryResult 
   if (!fs.existsSync(entryDir) || !fs.statSync(entryDir).isDirectory()) {
     throw new Error(`Entry folder not found: ${contentType}/${slug}`);
   }
+
+  assertReattachRequiredFields({ contentType, slug, contentRoot, entryDir });
 
   const filesModified: string[] = [];
   let hadTrafficVariants = false;

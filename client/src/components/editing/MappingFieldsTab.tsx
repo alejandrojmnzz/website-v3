@@ -1,12 +1,26 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Calculator, ChevronDown, Info, Link2, Loader2, Pencil, RotateCcw } from "lucide-react";
+import { AlertTriangle, Calculator, ChevronDown, Info, Link2, Loader2, Pencil, RotateCcw } from "lucide-react";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,6 +44,8 @@ import { useToast } from "@/hooks/use-toast";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { queryClient } from "@/lib/queryClient";
 import type { EditorHint } from "@/components/editing/EditorTypeDialog";
+import { deslugifyLabel } from "@shared/relation-field";
+import { NotMetaFieldBadge } from "@/components/editing/NotMetaFieldBadge";
 
 type FieldSource = "original" | "db_override" | "ct_override" | "entry_default";
 
@@ -239,14 +255,18 @@ function FieldsEducationBlock({
                 {hasDatabase ? (
                   <p>
                     Reset clears content-type and database overrides for a custom field, restoring the
-                    original database value.
+                    original database value. For SEO fields, Reset removes the locale{" "}
+                    <code className="text-[11px] font-mono">seo:</code> key so the{" "}
+                    <code className="text-[11px] font-mono">seo_*</code> DB baseline shows through (no DB
+                    write-back).
                   </p>
                 ) : (
                   <p>
                     Reset removes the key from this layer file only (
                     <code className="text-[11px] font-mono">{layerFileName || `${locale}.yml`}</code>
                     ). If the value only exists on <code className="text-[11px] font-mono">_common.yml</code>,
-                    reset is a no-op.
+                    reset is a no-op. SEO Reset removes the nested{" "}
+                    <code className="text-[11px] font-mono">seo:</code> key on the locale file.
                   </p>
                 )}
               </div>
@@ -258,11 +278,39 @@ function FieldsEducationBlock({
   );
 }
 
+type SeoOverviewClusters = {
+  clusters: {
+    pillarUrl: string;
+    clusterCount: number;
+    hubId?: string;
+    keyword?: string | null;
+  }[];
+};
+
+function pathLocalePrefix(urlPath: string): string | null {
+  const m = urlPath.trim().match(/^\/([a-z]{2})(?:\/|$)/i);
+  return m ? m[1].toLowerCase() : null;
+}
+
+function seoSourceBadge(row: FieldProvenance | undefined): { label: string; variant: "default" | "secondary" | "outline" } | null {
+  if (!row) return null;
+  if (row.layer_has_key) {
+    return { label: "Locale YAML", variant: "secondary" };
+  }
+  if (row.source === "original") {
+    return { label: "Database baseline", variant: "outline" };
+  }
+  return { label: "Entry default", variant: "outline" };
+}
+
+function isPillarPathOptedOut(row: FieldProvenance | undefined): boolean {
+  return row?.layer_has_key === true && row.effective === null;
+}
+
 function SeoFieldsEditor({
   rows,
   disabled,
   canonicalPath,
-  indexRebuilt,
   isVariantLayer,
   layerFileName,
   locale,
@@ -270,11 +318,12 @@ function SeoFieldsEditor({
   slug,
   contentType,
   onSave,
+  onResetField,
+  portalContainer,
 }: {
   rows: FieldProvenance[];
   disabled: boolean;
   canonicalPath?: string | null;
-  indexRebuilt?: boolean;
   isVariantLayer: boolean;
   layerFileName?: string;
   locale: string;
@@ -282,36 +331,109 @@ function SeoFieldsEditor({
   slug: string;
   contentType: string;
   onSave: (fields: Record<string, unknown>) => Promise<void>;
+  onResetField?: (fieldPath: string) => Promise<void>;
+  portalContainer?: HTMLElement | null;
 }) {
   const { toast } = useToast();
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [resettingField, setResettingField] = useState<string | null>(null);
+  const [chooserOpen, setChooserOpen] = useState(false);
+  const [seoFieldsEditing, setSeoFieldsEditing] = useState(false);
   const kwRow = rows.find((r) => r.field === "seo.main_keyword");
   const pillarRow = rows.find((r) => r.field === "seo.pillar_path");
   const hubRow = rows.find((r) => r.field === "seo.is_pillar");
+  const [clusterSeoOn, setClusterSeoOn] = useState(() => !isPillarPathOptedOut(pillarRow));
   const [mainKeyword, setMainKeyword] = useState(
     kwRow?.effective == null ? "" : String(kwRow.effective),
   );
   const [pillarPath, setPillarPath] = useState(
-    pillarRow?.effective == null ? "" : String(pillarRow.effective),
+    typeof pillarRow?.effective === "string" ? pillarRow.effective : "",
   );
   const [isPillar, setIsPillar] = useState(hubRow?.effective === true || hubRow?.effective === "true");
+
+  useEffect(() => {
+    if (seoFieldsEditing) return;
+    setClusterSeoOn(!isPillarPathOptedOut(pillarRow));
+    setMainKeyword(kwRow?.effective == null ? "" : String(kwRow.effective));
+    setPillarPath(typeof pillarRow?.effective === "string" ? pillarRow.effective : "");
+    setIsPillar(hubRow?.effective === true || hubRow?.effective === "true");
+  }, [
+    seoFieldsEditing,
+    kwRow?.effective,
+    pillarRow?.effective,
+    pillarRow?.layer_has_key,
+    hubRow?.effective,
+  ]);
+
+  const { data: overview } = useQuery<SeoOverviewClusters>({
+    queryKey: ["/api/seo/overview"],
+  });
+
+  const localeHubs = useMemo(() => {
+    const loc = locale.toLowerCase();
+    const prefix = `/${loc}/`;
+    return (overview?.clusters ?? []).filter((c) => {
+      const p = (c.pillarUrl || "").toLowerCase();
+      return p === `/${loc}` || p.startsWith(prefix);
+    });
+  }, [overview?.clusters, locale]);
+
+  const trimmedPath = pillarPath.trim();
+  const typedLocale = pathLocalePrefix(trimmedPath);
+  const localeMismatch = !!typedLocale && typedLocale !== locale.toLowerCase();
+  const knownHub = localeHubs.some((c) => c.pillarUrl === trimmedPath);
+  const unknownHub =
+    !isPillar &&
+    trimmedPath !== "" &&
+    !localeMismatch &&
+    overview != null &&
+    !knownHub;
+
+  const pathLocked = disabled || saving || isPillar;
 
   const handleTogglePillar = (checked: boolean) => {
     setIsPillar(checked);
     if (checked && canonicalPath) setPillarPath(canonicalPath);
   };
 
+  const handleClusterSeoToggle = async (checked: boolean) => {
+    if (disabled || saving) return;
+    const previous = clusterSeoOn;
+    setClusterSeoOn(checked);
+    if (!checked) {
+      setIsPillar(false);
+      setChooserOpen(false);
+    }
+    setSaving(true);
+    try {
+      if (!checked) {
+        await onSave({
+          "seo.pillar_path": null,
+          "seo.is_pillar": false,
+        });
+        setSeoFieldsEditing(false);
+      } else {
+        await onSave({
+          "seo.main_keyword": mainKeyword,
+          "seo.pillar_path": typeof pillarPath === "string" ? pillarPath : "",
+          "seo.is_pillar": isPillar,
+        });
+      }
+    } catch (err) {
+      setClusterSeoOn(previous);
+      toast({
+        title: "SEO save failed",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-3" data-testid="seo-fields-block">
-      {indexRebuilt && (
-        <p
-          className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100"
-          data-testid="banner-cluster-index-rebuilt"
-        >
-          Cluster index rebuilt from page SEO fields.
-        </p>
-      )}
       {isVariantLayer && (
         <p
           className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100"
@@ -326,14 +448,91 @@ function SeoFieldsEditor({
           SEO fields need a locale YAML file. Create {locale}.yml before editing.
         </p>
       )}
+      {!seoFieldsEditing ? (
+      <div
+        className="relative rounded-md border border-border bg-muted/20 p-3 pr-10 space-y-3 text-sm cursor-pointer hover-elevate"
+        onClick={() => setSeoFieldsEditing(true)}
+        data-testid="card-seo-fields-preview"
+        title="Click to edit"
+      >
+        <div className="absolute top-2 right-2 z-10" onClick={(e) => e.stopPropagation()}>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-6 w-6"
+            onClick={() => setSeoFieldsEditing(true)}
+            data-testid="button-edit-seo-fields"
+            title="Edit SEO fields"
+            aria-label="Edit SEO fields"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        <p className="font-medium text-foreground">SEO fields</p>
+        <dl className="space-y-2">
+          <div>
+            <dt className="text-xs text-muted-foreground">Include in SEO clustering</dt>
+            <dd className="text-sm text-foreground" data-testid="text-seo-cluster-on-preview">
+              {clusterSeoOn ? "On" : "Off — opted out of cluster monitoring"}
+            </dd>
+          </div>
+          {clusterSeoOn ? (
+            <>
+              <div>
+                <dt className="text-xs text-muted-foreground flex items-center gap-2">
+                  Main keyword
+                  {seoSourceBadge(kwRow) && (
+                    <Badge variant={seoSourceBadge(kwRow)!.variant} className="text-[10px] font-normal">
+                      {seoSourceBadge(kwRow)!.label}
+                    </Badge>
+                  )}
+                </dt>
+                <dd className="text-sm text-foreground" data-testid="text-seo-main-keyword-preview">
+                  {mainKeyword.trim() || (
+                    <span className="italic text-muted-foreground font-normal">Not set</span>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground flex items-center gap-2">
+                  Is pillar
+                  {seoSourceBadge(hubRow) && (
+                    <Badge variant={seoSourceBadge(hubRow)!.variant} className="text-[10px] font-normal">
+                      {seoSourceBadge(hubRow)!.label}
+                    </Badge>
+                  )}
+                </dt>
+                <dd className="text-sm text-foreground" data-testid="text-seo-is-pillar-preview">
+                  {isPillar ? "Yes — this page is the hub" : "No"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground flex items-center gap-2">
+                  Pillar path
+                  {seoSourceBadge(pillarRow) && (
+                    <Badge variant={seoSourceBadge(pillarRow)!.variant} className="text-[10px] font-normal">
+                      {seoSourceBadge(pillarRow)!.label}
+                    </Badge>
+                  )}
+                </dt>
+                <dd className="text-sm text-foreground font-mono truncate" data-testid="text-seo-pillar-path-preview">
+                  {pillarPath.trim() || (
+                    <span className="italic text-muted-foreground font-sans font-normal">Not in a cluster</span>
+                  )}
+                </dd>
+              </div>
+            </>
+          ) : null}
+        </dl>
+      </div>
+      ) : (
       <div className="rounded-md border border-border bg-muted/20 p-3 space-y-3 text-sm text-muted-foreground">
         <p className="font-medium text-foreground">SEO fields</p>
         <p>
-          <span className="font-medium text-foreground">Main keyword</span> is this page&apos;s query.{" "}
-          <span className="font-medium text-foreground">Is pillar</span> means this page is the hub — save
-          fills <span className="font-medium text-foreground">Pillar path</span> with this page&apos;s URL.
-          Supporting pages set Pillar path to that hub URL (same locale prefix). Empty path = not in a
-          cluster. Duplicate pillars warn only; they are not auto-cleared.
+          <span className="font-medium text-foreground">Include in SEO clustering</span> saves
+          immediately. Off excludes this page from cluster monitoring (writes{" "}
+          <code className="font-mono text-xs">pillar_path: null</code>) even when the content type has SEO
+          monitoring on. When on, set keyword and hub below, then save.
         </p>
         <button
           type="button"
@@ -351,21 +550,81 @@ function SeoFieldsEditor({
               <code className="font-mono">
                 {directory}/{slug}/{layerFileName || `${locale}.yml`}
               </code>
-              . Index: <code className="font-mono">{"{contentRoot}/seo-index.json"}</code> (content GitHub,
-              like image-registry, not GCS <code className="font-mono">sync/</code>). Constants in{" "}
-              <code className="font-mono">server/content-types.ts</code>. Not{" "}
-              <code className="font-mono">field_mapping</code>. Rejected on{" "}
-              <code className="font-mono">_common.yml</code>.{" "}
-              <code className="font-mono">markFileAsModified</code> after disk; auto-commit throttle
-              batches YAML + JSON with the same author.
+              . Opt-out persists as <code className="font-mono">seo.pillar_path: null</code> (empty string is a
+              cluster gap, not opt-out). DB baselines via <code className="font-mono">field_mapping</code>{" "}
+              <code className="font-mono">seo_main_keyword</code> /{" "}
+              <code className="font-mono">seo_is_pillar</code> /{" "}
+              <code className="font-mono">seo_pillar_path</code> (
+              <code className="font-mono">server/seo-effective-seo.ts</code>). Index:{" "}
+              <code className="font-mono">{"{contentRoot}/seo-index.json"}</code>. Rejected on{" "}
+              <code className="font-mono">_common.yml</code>.
             </p>
           </div>
         )}
         <div className="space-y-3 pt-1">
+          <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-background/50 px-3 py-2">
+            <div className="min-w-0 space-y-0.5">
+              <Label htmlFor="seo-cluster-on" className="text-xs text-foreground">
+                Include in SEO clustering
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {saving
+                  ? "Saving…"
+                  : clusterSeoOn
+                    ? "Keyword and pillar fields are editable."
+                    : "Page is excluded from cluster monitoring."}
+              </p>
+            </div>
+            <Switch
+              id="seo-cluster-on"
+              checked={clusterSeoOn}
+              disabled={disabled || saving}
+              onCheckedChange={(checked) => void handleClusterSeoToggle(checked)}
+              data-testid="switch-seo-cluster-on"
+            />
+          </div>
+          {clusterSeoOn ? (
+            <>
           <div className="space-y-1">
-            <Label htmlFor="seo-main-keyword" className="text-xs text-foreground">
-              Main keyword
-            </Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="seo-main-keyword" className="text-xs text-foreground flex items-center gap-2">
+                Main keyword
+                {seoSourceBadge(kwRow) && (
+                  <Badge variant={seoSourceBadge(kwRow)!.variant} className="text-[10px] font-normal">
+                    {seoSourceBadge(kwRow)!.label}
+                  </Badge>
+                )}
+              </Label>
+              {onResetField && kwRow?.layer_has_key && !disabled && (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  title="Reset to database baseline"
+                  disabled={!!resettingField || saving}
+                  data-testid="button-reset-seo-main_keyword"
+                  onClick={() => {
+                    setResettingField("seo.main_keyword");
+                    void onResetField("seo.main_keyword")
+                      .then(() => {
+                        setMainKeyword(
+                          kwRow?.baseline != null && kwRow.baseline !== ""
+                            ? String(kwRow.baseline)
+                            : "",
+                        );
+                      })
+                      .finally(() => setResettingField(null));
+                  }}
+                >
+                  {resettingField === "seo.main_keyword" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              )}
+            </div>
             <Input
               id="seo-main-keyword"
               className="bg-background"
@@ -383,56 +642,236 @@ function SeoFieldsEditor({
               onCheckedChange={(v) => handleTogglePillar(v === true)}
               data-testid="checkbox-seo-is-pillar"
             />
-            <Label htmlFor="seo-is-pillar" className="text-xs text-foreground">
+            <Label htmlFor="seo-is-pillar" className="text-xs text-foreground flex items-center gap-2 flex-1">
               Is pillar
+              {seoSourceBadge(hubRow) && (
+                <Badge variant={seoSourceBadge(hubRow)!.variant} className="text-[10px] font-normal">
+                  {seoSourceBadge(hubRow)!.label}
+                </Badge>
+              )}
             </Label>
+            {onResetField && hubRow?.layer_has_key && !disabled && (
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                title="Reset to database baseline"
+                disabled={!!resettingField || saving}
+                data-testid="button-reset-seo-is_pillar"
+                onClick={() => {
+                  setResettingField("seo.is_pillar");
+                  void onResetField("seo.is_pillar")
+                    .then(() => {
+                      setIsPillar(hubRow?.baseline === true || hubRow?.baseline === "true");
+                    })
+                    .finally(() => setResettingField(null));
+                }}
+              >
+                {resettingField === "seo.is_pillar" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            )}
           </div>
           <div className="space-y-1">
-            <Label htmlFor="seo-pillar-path" className="text-xs text-foreground">
-              Pillar path
-            </Label>
-            <Input
-              id="seo-pillar-path"
-              className="bg-background font-mono text-xs"
-              value={pillarPath}
-              disabled={disabled || saving}
-              onChange={(e) => setPillarPath(e.target.value)}
-              data-testid="input-seo-pillar-path"
-            />
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="seo-pillar-path" className="text-xs text-foreground flex items-center gap-2">
+                Pillar path
+                {seoSourceBadge(pillarRow) && (
+                  <Badge variant={seoSourceBadge(pillarRow)!.variant} className="text-[10px] font-normal">
+                    {seoSourceBadge(pillarRow)!.label}
+                  </Badge>
+                )}
+              </Label>
+              {onResetField && pillarRow?.layer_has_key && !disabled && (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  title="Reset to database baseline"
+                  disabled={!!resettingField || saving || pathLocked}
+                  data-testid="button-reset-seo-pillar_path"
+                  onClick={() => {
+                    setResettingField("seo.pillar_path");
+                    void onResetField("seo.pillar_path")
+                      .then(() => {
+                        setPillarPath(
+                          typeof pillarRow?.baseline === "string" ? pillarRow.baseline : "",
+                        );
+                      })
+                      .finally(() => setResettingField(null));
+                  }}
+                >
+                  {resettingField === "seo.pillar_path" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2 min-w-0">
+              <Input
+                id="seo-pillar-path"
+                className="bg-background font-mono text-xs flex-1 min-w-0"
+                value={pillarPath}
+                disabled={pathLocked}
+                onChange={(e) => setPillarPath(e.target.value)}
+                data-testid="input-seo-pillar-path"
+              />
+              <Popover open={chooserOpen} onOpenChange={setChooserOpen} modal={false}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    disabled={pathLocked}
+                    data-testid="button-choose-pillar"
+                    onMouseDown={(e) => e.preventDefault()}
+                  >
+                    Choose pillar
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="w-80 p-0 z-[10001] pointer-events-auto"
+                  align="end"
+                  container={portalContainer}
+                  onOpenAutoFocus={(e) => {
+                    e.preventDefault();
+                    const input = e.currentTarget.querySelector<HTMLInputElement>("input");
+                    input?.focus({ preventScroll: true });
+                  }}
+                  onCloseAutoFocus={(e) => e.preventDefault()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <Command>
+                    <CommandInput
+                      placeholder="Search hubs…"
+                      data-testid="input-choose-pillar-search"
+                    />
+                    <CommandList>
+                      <CommandEmpty data-testid="empty-choose-pillar">
+                        {localeHubs.length === 0
+                          ? "No pillar pages for this locale yet"
+                          : "No matching pillars."}
+                      </CommandEmpty>
+                      {localeHubs.length > 0 && (
+                        <CommandGroup>
+                          {localeHubs.map((cluster) => {
+                            const keyword =
+                              typeof cluster.keyword === "string" ? cluster.keyword.trim() : "";
+                            const slugLabel = deslugifyLabel(
+                              cluster.pillarUrl.replace(/\/+$/, "").split("/").filter(Boolean).pop() || "",
+                            );
+                            const label = keyword
+                              ? deslugifyLabel(keyword)
+                              : slugLabel || cluster.pillarUrl;
+                            return (
+                              <CommandItem
+                                key={cluster.hubId || cluster.pillarUrl}
+                                value={`${label} ${keyword} ${cluster.pillarUrl} ${cluster.hubId ?? ""}`}
+                                onSelect={() => {
+                                  setPillarPath(cluster.pillarUrl);
+                                  setChooserOpen(false);
+                                }}
+                                data-testid={`option-pillar-${cluster.pillarUrl}`}
+                              >
+                                <span className="flex-1 min-w-0 text-xs truncate">
+                                  {label}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground ml-2 shrink-0">
+                                  {cluster.clusterCount} member{cluster.clusterCount === 1 ? "" : "s"}
+                                </span>
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      )}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+            <p className="text-xs">
+              Choose a hub or type a path. Empty path = cluster gap (still monitored).
+            </p>
+            {isVariantLayer && (
+              <p className="text-xs" data-testid="text-pillar-chooser-variant-live">
+                List is live hubs. This save stays on the variant until promote.
+              </p>
+            )}
+            {localeMismatch && (
+              <p
+                className="text-xs text-destructive flex items-center gap-1"
+                data-testid="text-pillar-locale-mismatch"
+              >
+                <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                Path locale prefix must match this file ({locale}).
+              </p>
+            )}
+            {unknownHub && (
+              <p
+                className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1"
+                data-testid="text-pillar-unknown-hub"
+              >
+                <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                This URL isn&apos;t a known pillar yet. Save is still allowed.
+              </p>
+            )}
           </div>
-          <Button
-            size="sm"
-            disabled={disabled || saving}
-            onClick={async () => {
-              setSaving(true);
-              try {
-                await onSave({
-                  "seo.main_keyword": mainKeyword,
-                  "seo.pillar_path": pillarPath,
-                  "seo.is_pillar": isPillar,
-                });
-              } catch (err) {
-                toast({
-                  title: "SEO save failed",
-                  description: err instanceof Error ? err.message : String(err),
-                  variant: "destructive",
-                });
-              } finally {
-                setSaving(false);
-              }
-            }}
-            data-testid="button-save-seo-fields"
-          >
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
-            Save SEO fields
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              disabled={disabled || saving}
+              onClick={async () => {
+                setSaving(true);
+                try {
+                  await onSave({
+                    "seo.main_keyword": mainKeyword,
+                    "seo.pillar_path": pillarPath,
+                    "seo.is_pillar": isPillar,
+                  });
+                  setSeoFieldsEditing(false);
+                } catch (err) {
+                  toast({
+                    title: "SEO save failed",
+                    description: err instanceof Error ? err.message : String(err),
+                    variant: "destructive",
+                  });
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              data-testid="button-save-seo-fields"
+            >
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+              Save SEO fields
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setSeoFieldsEditing(false)}
+              disabled={saving}
+              data-testid="button-seo-fields-done"
+            >
+              Done editing
+            </Button>
+          </div>
+            </>
+          ) : null}
         </div>
-        {contentType === "blog" ? (
+        {contentType === "blog" && clusterSeoOn ? (
           <p className="text-xs">
             Cluster keyword/URL on the <strong>Fields</strong> tab are temporary holding columns — not the hub.
           </p>
         ) : null}
       </div>
+      )}
     </div>
   );
 }
@@ -443,11 +882,13 @@ export function EntrySeoClusterFields({
   slug,
   locale,
   variant,
+  portalContainer,
 }: {
   contentType: string;
   slug: string;
   locale: string;
   variant?: string | null;
+  portalContainer?: HTMLElement | null;
 }) {
   const { toast } = useToast();
   const [variantConfirmOpen, setVariantConfirmOpen] = useState(false);
@@ -537,6 +978,44 @@ export function EntrySeoClusterFields({
     invalidate();
   };
 
+  const resetSeoOverlayField = async (fieldPath: string) => {
+    const headers = await authHeaders();
+    const author = await resolveAuthorName();
+    const res = await fetch(
+      `/api/content-types/${encodeURIComponent(contentType)}/field-reset/${encodeURIComponent(slug)}`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          field: fieldPath,
+          locale,
+          variant: variantParam,
+          author: author || undefined,
+        }),
+      },
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      noop?: boolean;
+      message?: string;
+    };
+    if (!res.ok) {
+      throw new Error(body.error || "Failed to reset SEO field");
+    }
+    if (body.noop) {
+      toast({
+        title: "Nothing to reset",
+        description: body.message || body.error || "Field is not set on locale seo:.",
+      });
+    } else {
+      toast({
+        title: "SEO field reset",
+        description: `"${fieldPath}" restored to the database baseline (locale YAML key removed).`,
+      });
+    }
+    invalidate();
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 text-muted-foreground text-sm py-2" data-testid="seo-fields-loading">
@@ -552,7 +1031,6 @@ export function EntrySeoClusterFields({
         rows={seoRows}
         disabled={seoDisabled}
         canonicalPath={provenance?.canonicalPath}
-        indexRebuilt={provenance?.indexRebuilt}
         isVariantLayer={isVariantLayer}
         layerFileName={layerFileName}
         locale={locale}
@@ -560,6 +1038,19 @@ export function EntrySeoClusterFields({
         slug={slug}
         contentType={contentType}
         onSave={saveSeoFields}
+        onResetField={async (fieldPath) => {
+          try {
+            await resetSeoOverlayField(fieldPath);
+          } catch (err) {
+            toast({
+              title: "SEO reset failed",
+              description: err instanceof Error ? err.message : String(err),
+              variant: "destructive",
+            });
+            throw err;
+          }
+        }}
+        portalContainer={portalContainer}
       />
       <AlertDialog
         open={variantConfirmOpen}
@@ -646,6 +1137,8 @@ export function MappingFieldsTab({
   typeLabel,
   variant,
   hideSeoFields = false,
+  onOpenSeoMeta,
+  portalContainer,
 }: {
   contentType: string;
   slug: string;
@@ -655,6 +1148,9 @@ export function MappingFieldsTab({
   variant?: string | null;
   /** When true, cluster/keyword SEO fields are omitted (shown on SEO Meta tab instead). */
   hideSeoFields?: boolean;
+  /** Switch to SEO Meta tab in the parent modal (share preview). */
+  onOpenSeoMeta?: () => void;
+  portalContainer?: HTMLElement | null;
 }) {
   const { toast } = useToast();
   const [levelChooserField, setLevelChooserField] = useState<FieldProvenance | null>(null);
@@ -674,6 +1170,19 @@ export function MappingFieldsTab({
     typeof variant === "string" && variant.trim() && variant.trim() !== "default"
       ? variant.trim()
       : undefined;
+
+  const { data: attachStatus } = useQuery<{ detached?: boolean }>({
+    queryKey: ["/api/content", contentType, slug, "attach-status", locale],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/content/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}/attach-status?locale=${encodeURIComponent(locale)}`,
+      );
+      if (!res.ok) return { detached: false };
+      return res.json();
+    },
+    staleTime: 30_000,
+  });
+  const entryDetached = !!attachStatus?.detached;
 
   const provenanceKey = [
     "/api/content-types",
@@ -851,18 +1360,6 @@ export function MappingFieldsTab({
     }
   };
 
-  const holdingBanner =
-    contentType === "blog" && mappedFields.some((f) => f.field === "cluster_keyword" || f.field === "cluster_url") ? (
-      <p
-        className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
-        data-testid="banner-cluster-holding-columns"
-      >
-        <code className="font-mono text-xs">cluster_keyword</code> and{" "}
-        <code className="font-mono text-xs">cluster_url</code> are temporary holding fields — not the hub.
-        Hub fields are on the <strong>SEO Meta</strong> tab.
-      </p>
-    ) : null;
-
   const seoBlock = hideSeoFields ? null : (
     <EntrySeoClusterFields
       contentType={contentType}
@@ -908,7 +1405,6 @@ export function MappingFieldsTab({
       {variantWarning}
       {seoBlock}
       {education}
-      {holdingBanner}
       <div className="rounded-md border overflow-hidden">
         <table className="w-full text-sm">
           <thead>
@@ -943,6 +1439,13 @@ export function MappingFieldsTab({
                       {row.calculated && (
                         <Calculator
                           className="h-3 w-3 text-muted-foreground"
+                        />
+                      )}
+                      {(row.field === "title" || row.field === "description") && (
+                        <NotMetaFieldBadge
+                          field={row.field}
+                          onOpenSeoMeta={onOpenSeoMeta}
+                          portalContainer={portalContainer}
                         />
                       )}
                     </span>
@@ -1147,6 +1650,7 @@ export function MappingFieldsTab({
           dbName={editing.level === "database" ? ctConfig?.database?.slug : undefined}
           item={{ [editing.field]: editing.value }}
           title={`Edit ${editing.field}`}
+          entryDetached={entryDetached}
           onClose={() => setEditing(null)}
           onSave={async (built) => {
             if (editing.level === "content_type") {

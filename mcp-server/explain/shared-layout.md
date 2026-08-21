@@ -14,7 +14,7 @@ Example (blog): body markdown is `content` on the locale file; `{{ single.conten
 ## Playbook (create)
 
 1. `list_sites` — if multi-site, pick a domain and pass `site` on every later call.
-2. `get_content_type_info` with `contentType` + `site` — read `field_mapping`, `editor.required`, URL params, observed values, `create_via`.
+2. `get_content_type_info` with `contentType` + `site` — read `field_mapping`, `editor` / `editor_required_modes`, URL params, observed values, `create_via`.
 3. `create_entry` with **exactly one** locale for shared-layout; put required fields on the locale object; `sections: []` (or omit); put URL params / category on `common` as the type expects.
 4. If a URL-param/select value is **not** in observed peers → stop; get approval from the **principal** (human or orchestrator/reviewer), then re-call with `confirm_new_values: true`.
 5. Fill SEO via `update_fields` or multi-entry `update_meta_fields` if needed; verify with `get_entry_content` / `get_entry_seo`.
@@ -24,6 +24,8 @@ Example (blog): body markdown is `content` on the locale file; `{{ single.conten
 ## Custom shell
 
 Only when this entry must diverge from `single.{locale}.yml`: `set_entry_attachment` (`action: "detach"`, `confirm: true`). Bakes all existing live locales. Local section overlays without ownership change: section tools + `layout_target: "entry"`.
+
+**Reattach:** `action: "reattach"` + `confirm: true` is blocked until every **live** locale satisfies fields with `editor.required: true|attached` (including JSON schema for `call_to_action` / `faq_entries`). Failure: `reattach_missing_required_fields` + locale-qualified `missing_fields`. Fill via `update_fields`, then retry. Non-effect: does not copy CTA/FAQ from detached sections into Fields.
 
 ## Anti-patterns
 

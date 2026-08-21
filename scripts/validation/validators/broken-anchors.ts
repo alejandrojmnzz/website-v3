@@ -12,6 +12,7 @@
 import * as fs from "fs";
 import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
+import { skipCrossEntryVariantRow } from "../shared/draftFiles";
 
 const ANCHOR_FIELD_EXACT = new Set(["url", "cta_url", "href", "link"]);
 
@@ -77,6 +78,7 @@ export const brokenAnchorsValidator: Validator = {
     let brokenCount = 0;
 
     for (const contentFile of context.contentFiles) {
+      if (skipCrossEntryVariantRow(contentFile)) continue;
       if (!contentFile.filePath || !fs.existsSync(contentFile.filePath)) continue;
 
       let parsed: unknown;

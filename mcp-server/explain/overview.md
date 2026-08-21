@@ -9,7 +9,7 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 - **i18n** — pages exist in one or more locales. Each locale has its own YAML file (`en.yml`, `es.yml`). Shared fields live in `_common.yml` and are deep-merged at read time.
 - **Image registry** — all images are referenced by ID from `{content_folder}/image-registry.json`. Raw paths are never hardcoded in components.
 - **Routing** — URL patterns are defined per content type in `content-types.yml`. English pages use `/en/` and Spanish pages use `/es/` prefixes.
-- **MCP mutating tools** — success payloads always include `warnings` + `next_actions` (see `mcp-server/lib/respond.ts`). Shared-layout sibling locale sync is agent-driven via `next_actions`, not server fan-out; section bindings propagate on live single-section edits.
+- **MCP mutating tools** — success payloads always include `warnings` + `next_actions` (see `mcp-server/lib/respond.ts`). Shared-layout sibling locale sync is agent-driven via `next_actions`, not server fan-out; section bindings propagate on live single-section edits. YAML/component/explain **reads** require `content_view`; the caller’s `tools/list` is filtered to their grants in production.
 
 ## Active content types
 
@@ -29,7 +29,7 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 | `content_system` | How YAML content files are structured, merged, and loaded safely |
 | `routing` | How URL patterns and locale prefixes work |
 | `images` | How images are registered, referenced, and rendered |
-| `sections` | How section components are defined, registered, and rendered |
+| `sections` | Section components, registry, in-page CTA hashes (`#section_id` modal/scroll, `inline#`, `#top`/`#bottom`) |
 | `semantic_search` | Qdrant, local embeddings, database `vector_search`, keyword fallback |
 | `local_databases` | Local YAML private DBs; MCP item CRUD; global index; FAQ database (`frequently_asked_questions`) |
 | `component-behaviors` | behaviors ids, CTA `tracking`, conversion_events catalog, CRM tags allowlist |
@@ -37,5 +37,6 @@ This is a content-driven marketing platform built with React (Vite/TypeScript) o
 | `shared-layout` | `single_template` / DB shared shell; create_entry playbook; blog as example |
 | `relation-fields` | Relation editor, authors hubs, listing vs hydrate, delete reassign |
 | `lead-forms` | Catalog `source` (`content_type` / `database` / `related_field`), required `value_path`/`label_path`, required `query` on ecommerce catalogs, `purchasable` vs `actively_selling` |
+| `redirects` | CMS 301/302: two stores, first-match, `test_redirect` + `update_redirect` (`seo_edit`) |
 
 **Before making any structural change to this codebase, call `explain_site` with the relevant topic.**

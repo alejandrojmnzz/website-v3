@@ -426,6 +426,7 @@ export const SAMPLE_LEAD_PAYLOAD: Record<string, unknown> = {
   utm_plan: "",
   ppc_tracking_id: "",
   referral: "",
+  referral_key: "",
   tags: "website-lead",
   automations: "strong",
   consent_email: true,

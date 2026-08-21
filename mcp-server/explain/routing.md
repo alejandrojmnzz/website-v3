@@ -19,7 +19,10 @@ url_pattern:
   default: /landing/:slug
 ```
 
-The `:slug` placeholder is replaced with the page's slug (folder name) at runtime.
+The `:slug` placeholder is replaced with the locale file `slug` value at runtime (for example `es.yml -> slug:`).  
+If a locale file does not define `slug`, the folder name is used as fallback.
+
+Routing ownership is checked against the live content index. If a real folder or another entry already resolves the same URL, slug changes are rejected with `slug_already_owned_by_other_entry`.
 
 ## Locale prefixes
 
@@ -36,9 +39,15 @@ The `:slug` placeholder is replaced with the page's slug (folder name) at runtim
 
 The frontend router reads all content types at startup and generates routes for every slug × locale combination it finds on disk. Adding a new YAML folder automatically creates a new route — no code change needed.
 
+After writes, the content index must refresh before new URLs become routable. If a mutate tool reports `index_refresh_failed`, run `refresh_content_index` and re-check the URL.
+
 ## Sitemap
 
 Routes are also used to generate the sitemap automatically. Every page with a valid `url_pattern` and at least one **live** locale file (`en.yml` / `es.yml`) is included. Unpublished drafts (only `{variant}.{locale}.yml`) are not indexed and are not in the sitemap.
+
+## Redirects (301/302)
+
+CMS redirects are a separate first-match layer on top of URL patterns. Two stores: `{directory}/{slug}/{locale}.yml` `meta.redirects` (dest locale only) and `site_<name>/custom-redirects.yml`. Inspect with `test_redirect`; mutate with `update_redirect` (`seo_edit`). See `explain_site` topic `redirects`.
 
 ## DB-backed vs static slugs
 

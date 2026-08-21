@@ -98,7 +98,7 @@ export function isRelationEditorHint(
 /** Deslugify for listing labels: `ada-lovelace` → `Ada Lovelace`. */
 export function deslugifyLabel(slug: string): string {
   return slug
-    .split(/[-_]+/)
+    .split(/[\s\-_]+/)
     .filter(Boolean)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
     .join(" ");

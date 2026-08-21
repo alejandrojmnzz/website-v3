@@ -53,6 +53,8 @@ Example paths: `signup_card.cta_button.tracking`, `programs[].summary.cta.tracki
 
 Save/MCP validation: missing tracking on bound paths fails; non-`none` requires a purchasable product in the ecommerce index.
 
+The staff Ecommerce tab is bound-path visibility (`cta-tracking` / `ecommerce-products` for the active variant), not type-level `behaviors.ecommerce`. Non-effect: save still does not require `tracking` on unbound hero variants; identity / `getComponentInfo().behaviors` unchanged.
+
 ## Product scope (exact paths)
 
 | Component | Property path |

@@ -4,7 +4,7 @@
  * - top-level main_seo_keyword → seo.main_keyword (if empty)
  * - nested seo.pillar → seo.pillar_path
  * - fail/log seo: / main_seo_keyword on _common.yml (do not move)
- * - keep cluster_keyword / cluster_url
+ * - cluster_keyword / cluster_url are removed by migrate-blog-cluster-to-seo.ts
  * - build seo-index.json from live locale files
  *
  * Usage:

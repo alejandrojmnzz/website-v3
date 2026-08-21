@@ -51,7 +51,7 @@ function parseUTMParams(search: string): UTMParams {
   const utmKeys: (keyof UTMParams)[] = [
     'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
     'utm_url', 'utm_placement', 'utm_plan',
-    'ref', 'referral', 'coupon'
+    'ref', 'referral', 'referral_key', 'coupon'
   ];
   
   for (const key of utmKeys) {

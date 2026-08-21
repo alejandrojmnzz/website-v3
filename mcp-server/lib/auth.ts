@@ -1,4 +1,6 @@
 import { getTokenUsername } from "./oauth.js";
+import type { CatalogGrant } from "./tool-catalog.js";
+import { hasCapAnyScope } from "./tool-catalog.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 // MCP_SERVER_SECRET is the internal credential used only for the MCP server's own
@@ -37,6 +39,60 @@ export async function checkCap(
   } catch {
     return false;
   }
+}
+
+/** Load capability grants for the MCP caller. null = fetch failed. */
+export async function fetchCallerGrants(mcpToken: string): Promise<CatalogGrant[] | null> {
+  const username = getTokenUsername(mcpToken);
+  if (!username) return null;
+  try {
+    const params = new URLSearchParams({ username });
+    const url = `http://localhost:${MAIN_SERVER_PORT}/api/auth/user-info?${params}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${MCP_SERVER_SECRET}` },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { capabilities?: CatalogGrant[] };
+    return Array.isArray(data.capabilities) ? data.capabilities : [];
+  } catch {
+    return null;
+  }
+}
+
+export async function denyUnlessContentView(
+  mcpToken: string | undefined,
+  contentType: string | undefined,
+  grants: CatalogGrant[] | undefined,
+) {
+  if (!mcpToken) return null;
+  if (contentType) {
+    if (!(await checkCap(mcpToken, "content_view", contentType))) {
+      return denyResponse("content_view", contentType);
+    }
+    return null;
+  }
+  if (grants && !hasCapAnyScope(grants, "content_view")) {
+    return denyResponse("content_view");
+  }
+  return null;
+}
+
+export async function denyUnlessContentViewOrSeo(
+  mcpToken: string | undefined,
+  contentType: string | undefined,
+  grants: CatalogGrant[] | undefined,
+) {
+  if (!mcpToken) return null;
+  if (contentType) {
+    if (await checkCap(mcpToken, "content_view", contentType)) return null;
+    if (await checkCap(mcpToken, "seo_edit")) return null;
+    return denyResponse("content_view|seo_edit", contentType);
+  }
+  if (grants) {
+    if (hasCapAnyScope(grants, "content_view") || hasCapAnyScope(grants, "seo_edit")) return null;
+    return denyResponse("content_view|seo_edit");
+  }
+  return null;
 }
 
 /**

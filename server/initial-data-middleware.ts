@@ -30,6 +30,12 @@ import {
   buildLocaleUnavailablePayload,
   isEmptyDetachedLocaleEntry,
 } from "./empty-locale";
+import {
+  buildPageImageRegistrySubset,
+  createEmptyImageRefs,
+  extractImageRefsFromValue,
+  type ImageRefs,
+} from "./image-registry-subset";
 
 const DEFAULT_SRCSET_SIZES =
   "(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw";
@@ -403,77 +409,12 @@ function resolveMenuQuery(menuId: string, locale: string, contentRoot = getDefau
 
 const DEFAULT_EAGER_COUNT = 3;
 
-interface ImageRefs {
-  ids: Map<string, string | undefined>;
-  directUrls: Set<string>;
-}
-
 export interface PreloadHint {
   src: string;
   srcset?: string;
   sizes?: string;
   /** When true, emit fetchpriority=high. Only the LCP candidate should set this. */
   highPriority?: boolean;
-}
-
-const IMAGE_URL_PATTERN = /\.(png|jpe?g|webp|avif|gif|svg)(\?|$)/i;
-
-/** Matches snake_case `image_id` / `*_image_id` and camelCase `imageId` (navbar Logo). */
-const IMAGE_ID_KEY_PATTERN = /(?:^|_)image_id$|^imageId$/;
-
-/** Fallback used by LogoItem when menu YAML omits imageId (e.g. localized menus). */
-const DEFAULT_NAVBAR_LOGO_ID = "4geeks-devs-logo-1763162063433";
-
-function extractImageRefsFromValue(value: unknown, refs: ImageRefs, parentKey?: string): void {
-  if (!value || typeof value !== "object") return;
-  if (Array.isArray(value)) {
-    for (const item of value) extractImageRefsFromValue(item, refs, parentKey);
-    return;
-  }
-  const obj = value as Record<string, unknown>;
-
-  if (typeof obj.id === "string") {
-    const hasImageContext =
-      typeof obj.alt === "string" ||
-      typeof obj.preset === "string" ||
-      typeof obj.src === "string";
-    if (hasImageContext) {
-      const preset = typeof obj.preset === "string" ? obj.preset : undefined;
-      if (!refs.ids.has(obj.id)) {
-        refs.ids.set(obj.id, preset);
-      }
-    }
-  }
-
-  if (typeof obj.image === "object" && obj.image !== null) {
-    const img = obj.image as Record<string, unknown>;
-    if (typeof img.id === "string" && !refs.ids.has(img.id)) {
-      const preset = typeof img.preset === "string" ? img.preset : undefined;
-      refs.ids.set(img.id, preset);
-    }
-  }
-
-  // Navbar Logo items use component: Logo + optional imageId (camelCase).
-  // Always include them so the SSR registry subset keeps the brand mark visible.
-  if (obj.component === "Logo") {
-    const logoId =
-      typeof obj.imageId === "string" && obj.imageId.trim()
-        ? obj.imageId.trim()
-        : DEFAULT_NAVBAR_LOGO_ID;
-    if (!refs.ids.has(logoId)) refs.ids.set(logoId, undefined);
-  }
-
-  if (typeof obj.src === "string" && obj.src.startsWith("http") && IMAGE_URL_PATTERN.test(obj.src)) {
-    refs.directUrls.add(obj.src);
-  }
-
-  for (const [key, v] of Object.entries(obj)) {
-    if (typeof v === "string" && IMAGE_ID_KEY_PATTERN.test(key)) {
-      if (!refs.ids.has(v)) refs.ids.set(v, undefined);
-    } else {
-      extractImageRefsFromValue(v, refs, key);
-    }
-  }
 }
 
 type PreloadRegistryImageEntry = {
@@ -542,8 +483,8 @@ export function resolvePreloadHints(
 
   // Prefer images from the first (hero) section as the LCP candidate; collect
   // remaining eager-window images as secondary preloads without high priority.
-  const lcpRefs: ImageRefs = { ids: new Map(), directUrls: new Set() };
-  const secondaryRefs: ImageRefs = { ids: new Map(), directUrls: new Set() };
+  const lcpRefs: ImageRefs = createEmptyImageRefs();
+  const secondaryRefs: ImageRefs = createEmptyImageRefs();
   const prioritySections = sections.slice(0, eagerCount);
   if (prioritySections[0]) {
     extractImageRefsFromValue(prioritySections[0], lcpRefs);
@@ -626,46 +567,6 @@ export function resolvePreloadHints(
   }
 
   return hints;
-}
-
-function buildPageImageRegistrySubset(
-  fullRegistry: {
-    presets?: Record<string, unknown>;
-    images: Record<string, unknown>;
-    tagDefinitions?: unknown;
-  },
-  pageData: unknown,
-  extraData: unknown[],
-): typeof fullRegistry {
-  const refs: ImageRefs = { ids: new Map(), directUrls: new Set() };
-  extractImageRefsFromValue(pageData, refs);
-  for (const extra of extraData) {
-    extractImageRefsFromValue(extra, refs);
-  }
-
-  const images: Record<string, unknown> = {};
-  const srcToId = new Map<string, string>();
-  for (const [id, entry] of Object.entries(fullRegistry.images || {})) {
-    const src = (entry as { src?: string })?.src;
-    if (src) srcToId.set(src, id);
-  }
-
-  for (const id of refs.ids.keys()) {
-    if (fullRegistry.images[id]) images[id] = fullRegistry.images[id];
-  }
-  for (const url of refs.directUrls) {
-    const id = srcToId.get(url);
-    if (id && fullRegistry.images[id]) images[id] = fullRegistry.images[id];
-  }
-
-  // Always keep presets — small, and UniversalImage resolves sizes from them.
-  return {
-    presets: fullRegistry.presets ?? {},
-    images: images as typeof fullRegistry.images,
-    ...(fullRegistry.tagDefinitions
-      ? { tagDefinitions: fullRegistry.tagDefinitions }
-      : {}),
-  };
 }
 
 function escapeAttr(str: string): string {
@@ -841,13 +742,43 @@ export async function resolveInitialData(
 
     resolvedLocale = locale;
 
-    if (layout?.menu?.top) {
-      const mq = resolveMenuQuery(layout.menu.top, locale, ci.contentRoot);
-      if (mq) queries.push(mq);
-    }
-    if (layout?.menu?.bottom) {
-      const mq = resolveMenuQuery(layout.menu.bottom, locale, ci.contentRoot);
-      if (mq) queries.push(mq);
+    // Seed menus for the content locale AND the URL-inferred locale when they
+    // differ (e.g. /landing/foo with no /es prefix but es.yml). The header may
+    // switch language after hydrate; the SSR subset must include both.
+    const menuLocales = new Set<string>([locale, defaultLocale].filter(Boolean));
+    const topMenuId = layout?.menu?.top ?? "main-navbar";
+    const bottomMenuId = layout?.menu?.bottom ?? "main-footer";
+    for (const menuLocale of menuLocales) {
+      if (topMenuId) {
+        const mq = resolveMenuQuery(topMenuId, menuLocale, ci.contentRoot);
+        if (
+          mq &&
+          !queries.some(
+            (q) =>
+              Array.isArray(q.queryKey) &&
+              q.queryKey[0] === "/api/menus" &&
+              q.queryKey[1] === topMenuId &&
+              q.queryKey[2] === menuLocale,
+          )
+        ) {
+          queries.push(mq);
+        }
+      }
+      if (bottomMenuId) {
+        const mq = resolveMenuQuery(bottomMenuId, menuLocale, ci.contentRoot);
+        if (
+          mq &&
+          !queries.some(
+            (q) =>
+              Array.isArray(q.queryKey) &&
+              q.queryKey[0] === "/api/menus" &&
+              q.queryKey[1] === bottomMenuId &&
+              q.queryKey[2] === menuLocale,
+          )
+        ) {
+          queries.push(mq);
+        }
+      }
     }
   }
 
@@ -867,7 +798,9 @@ export async function resolveInitialData(
     const menuDatas = queries
       .filter((q) => Array.isArray(q.queryKey) && q.queryKey[0] === "/api/menus")
       .map((q) => q.data);
-    const subset = buildPageImageRegistrySubset(registry as any, pageData, menuDatas);
+    const subset = buildPageImageRegistrySubset(registry as any, pageData, menuDatas, {
+      variables: variablesQuery.data,
+    });
     queries.push({
       queryKey: ["/api/image-registry"],
       data: subset,

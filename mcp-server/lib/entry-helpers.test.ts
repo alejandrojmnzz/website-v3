@@ -72,6 +72,22 @@ describe("missingRequiredFields", () => {
     expect(missingRequiredFields(config, {}, { title: "Hi" })).toEqual(["content"]);
     expect(missingRequiredFields(config, {}, { title: "Hi", content: "# body" })).toEqual([]);
   });
+
+  it("skips required: attached when isDetached", () => {
+    const config: ContentTypeConfig = {
+      single_template: true,
+      editor: {
+        title: { required: true },
+        call_to_action: { required: "attached", type: "json", schema: { type: "object" } },
+      },
+    };
+    expect(
+      missingRequiredFields(config, {}, { title: "Hi" }, { isSharedLayout: true, isDetached: true }),
+    ).toEqual([]);
+    expect(
+      missingRequiredFields(config, {}, { title: "Hi" }, { isSharedLayout: true, isDetached: false }),
+    ).toContain("call_to_action");
+  });
 });
 
 describe("createVia / bodyModel", () => {

@@ -3,8 +3,10 @@ import * as yaml from "js-yaml";
 import type { Validator, ValidatorResult, ValidationContext, ValidationIssue } from "../shared/types";
 import { isEmptyLocaleContent } from "@shared/isEmptyLocaleContent";
 import { isEntryDetached, isSharedLayoutType } from "../../../server/shared-layout-entry";
+import { isValidAttachedOverlayPatch } from "@shared/sectionLeftovers";
 import { contentIndex } from "../../../server/content-index";
 import { createPublicUrlResolver } from "../../../server/redirects";
+import * as path from "path";
 
 const CRITICAL_FIELDS = new Set(["title", "heading", "description", "subtitle", "tagline"]);
 
@@ -29,29 +31,70 @@ function findEmptyFields(obj: unknown, results: string[], currentPath: string = 
   }
 }
 
-function findInternalLinks(obj: unknown, links: string[]): void {
+interface InternalLinkHit {
+  link: string;
+  fieldPath: string;
+  /** Section component type when the link sits under sections[i]. */
+  component?: string;
+}
+
+function findInternalLinks(
+  obj: unknown,
+  hits: InternalLinkHit[],
+  currentPath = "",
+  sectionType?: string,
+): void {
   if (!obj || typeof obj !== "object") {
     if (typeof obj === "string") {
       const urlPattern = /(?:^|\s)(\/(?:en|es)\/[^\s"'<>]*)/g;
       let match: RegExpExecArray | null;
       while ((match = urlPattern.exec(obj)) !== null) {
-        links.push(match[1]);
+        hits.push({
+          link: match[1],
+          fieldPath: currentPath || "(root)",
+          component: sectionType,
+        });
       }
     }
     return;
   }
 
   if (Array.isArray(obj)) {
-    for (const item of obj) {
-      findInternalLinks(item, links);
-    }
+    const underSections =
+      currentPath === "sections" || currentPath.endsWith(".sections");
+    obj.forEach((item, index) => {
+      const itemPath = `${currentPath}[${index}]`;
+      let nextSectionType = sectionType;
+      if (
+        underSections &&
+        item &&
+        typeof item === "object" &&
+        !Array.isArray(item)
+      ) {
+        const t = (item as Record<string, unknown>).type;
+        if (typeof t === "string" && t.length > 0) nextSectionType = t;
+      }
+      findInternalLinks(item, hits, itemPath, nextSectionType);
+    });
     return;
   }
 
   const record = obj as Record<string, unknown>;
-  for (const value of Object.values(record)) {
-    findInternalLinks(value, links);
+  for (const [key, value] of Object.entries(record)) {
+    const fieldPath = currentPath ? `${currentPath}.${key}` : key;
+    findInternalLinks(value, hits, fieldPath, sectionType);
   }
+}
+
+function isAttachedOverlayFile(
+  file: { type: string; slug: string; filePath: string },
+  contentRoot?: string,
+): boolean {
+  const base = path.basename(file.filePath);
+  if (base.startsWith("single.")) return false;
+  if (!isSharedLayoutType(file.type, contentRoot)) return false;
+  if (isEntryDetached(file.type, file.slug, contentRoot)) return false;
+  return true;
 }
 
 export const contentQualityValidator: Validator = {
@@ -128,17 +171,25 @@ export const contentQualityValidator: Validator = {
 
       const sections = parsed.sections as Array<Record<string, unknown>> | undefined;
       if (sections && Array.isArray(sections) && sections.length > 0) {
+        const overlay = isAttachedOverlayFile(file, contentRoot);
         for (let i = 0; i < sections.length; i++) {
-          if (!sections[i].type) {
-            missingTypes++;
-            errors.push({
-              type: "error",
-              code: "SECTION_MISSING_TYPE",
-              message: `Section at index ${i} is missing a type field`,
-              file: file.filePath,
-              suggestion: "Add a type field to every section (e.g., hero, faq, features_grid)",
-            });
-          }
+          const sec = sections[i];
+          if (!sec || typeof sec !== "object") continue;
+          if (typeof sec.type === "string" && sec.type.length > 0) continue;
+          if (overlay && isValidAttachedOverlayPatch(sec)) continue;
+
+          missingTypes++;
+          errors.push({
+            type: "error",
+            code: "SECTION_MISSING_TYPE",
+            message: overlay
+              ? `Section at index ${i} has no type and no section_id (identity-less stub)`
+              : `Section at index ${i} is missing a type field (typeless leftover; it does not render)`,
+            file: file.filePath,
+            suggestion: overlay
+              ? "Delete this stub, or add section_id / _remove if it is an overlay patch for single.{locale}.yml"
+              : "Delete the leftover YAML item. It does not render. Do not add a type to a fragment that duplicates a real section.",
+          });
         }
       }
 
@@ -155,18 +206,21 @@ export const contentQualityValidator: Validator = {
         });
       }
 
-      const internalLinks: string[] = [];
+      const internalLinks: InternalLinkHit[] = [];
       findInternalLinks(parsed, internalLinks);
       const locale = file.locale === "_common" ? "en" : file.locale;
-      for (const link of internalLinks) {
-        if (!publicUrls.isLive(link, locale)) {
+      for (const hit of internalLinks) {
+        if (!publicUrls.isLive(hit.link, locale)) {
           brokenLinks++;
+          const where = hit.component
+            ? ` in component "${hit.component}"`
+            : "";
           errors.push({
             type: "error",
             code: "BROKEN_INTERNAL_LINK",
-            message: `Broken internal link: "${link}"`,
+            message: `Broken internal link: "${hit.link}"${where}`,
             file: file.filePath,
-            suggestion: "Fix the URL or remove the broken link. Confirm with Redirects → Test a URL.",
+            suggestion: `Found at ${hit.fieldPath}. Fix the URL or remove the broken link. Confirm with Redirects → Test a URL.`,
           });
         }
       }

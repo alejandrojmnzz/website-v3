@@ -50,9 +50,13 @@ import {
   redirectMiddleware,
   clearRedirectCache,
   testRedirect,
+  inspectRedirect,
   getFreshRedirectEntries,
   isRegexPattern,
 } from "../redirects";
+import { insertCustomRedirect, moveCustomRedirect } from "../custom-redirects-yml";
+import { scheduleRedirectsValidation } from "../services/onSaveValidation";
+import { getValidationCacheService } from "../services/validationCacheService";
 import {
   getSchema,
   getMergedSchemas,
@@ -253,6 +257,23 @@ function getContentRootName(res: Response): string {
   return (res.locals.site as any)?.contentRootName ?? (getDefaultContentFolder());
 }
 
+function getValidationCache(res: Response) {
+  return (res.locals.site as any)?.validationCache ?? getValidationCacheService();
+}
+
+function afterRedirectWrite(res: Response, filePath?: string): void {
+  getCI(res).scan();
+  clearRedirectCache();
+  scheduleRedirectsValidation({
+    contentRoot: getContentRoot(res),
+    contentRootName: getContentRootName(res),
+    ci: getCI(res),
+    cache: getValidationCache(res),
+    filePath,
+    redirectsChanged: true,
+  });
+}
+
 /** Append a redirect rule to custom-redirects.yml (used for custom dests and DB-backed pages). */
 function appendCustomRedirect(opts: {
   contentRoot: string;
@@ -262,63 +283,9 @@ function appendCustomRedirect(opts: {
   statusCode: number;
   priority: "before" | "fallback";
   authorName?: string;
-}): { ok: true; file: string } | { ok: false; status: number; error: string } {
-  const customFilePath = path.join(opts.contentRoot, "custom-redirects.yml");
-
-  let parsed: {
-    redirects: Array<{
-      from: string;
-      to: string | Record<string, string>;
-      status?: number;
-      priority?: string;
-    }>;
-  } = { redirects: [] };
-  if (fs.existsSync(customFilePath)) {
-    const raw = fs.readFileSync(customFilePath, "utf-8");
-    const loaded = safeYamlLoad(raw) as { redirects?: unknown[] } | null;
-    if (loaded && Array.isArray(loaded.redirects)) {
-      parsed.redirects = loaded.redirects as Array<{
-        from: string;
-        to: string | Record<string, string>;
-        status?: number;
-        priority?: string;
-      }>;
-    }
-  }
-
-  if (parsed.redirects.some((r) => r.from?.toLowerCase() === opts.from)) {
-    return {
-      ok: false,
-      status: 409,
-      error: `Redirect "${opts.from}" already exists in custom-redirects.yml`,
-    };
-  }
-
-  const newEntry: {
-    from: string;
-    to: string | Record<string, string>;
-    status?: number;
-    priority?: string;
-  } = { from: opts.from, to: opts.to };
-  if (opts.statusCode !== 301) {
-    newEntry.status = opts.statusCode;
-  }
-  if (opts.priority === "fallback") {
-    newEntry.priority = "fallback";
-  }
-  parsed.redirects.push(newEntry);
-
-  const yamlContent = safeYamlDump(parsed, {
-    lineWidth: -1,
-    noRefs: true,
-  });
-  fs.writeFileSync(customFilePath, yamlContent, "utf-8");
-  markFileAsModified(customFilePath, opts.authorName, undefined, opts.contentRoot);
-
-  return {
-    ok: true,
-    file: `${opts.contentRootName}/custom-redirects.yml`,
-  };
+  beforeFrom?: string;
+}): { ok: true; file: string } | { ok: false; status: number; error: string; code?: string } {
+  return insertCustomRedirect(opts);
 }
 
 /** Return the per-site ConversationStore for the current request, falling back to the default singleton. */
@@ -399,20 +366,67 @@ export function registerAdminRoutes(app: Express): void {
     if (!auth.authorized) return;
 
     try {
-      const { getSitesYmlLocalPath, readSitesYmlLocal } = await import("../sites-yml-store");
+      const { readSitesYmlLocal } = await import("../sites-yml-store");
       const content = readSitesYmlLocal();
       res.json({
         exists: content !== null,
-        path: getSitesYmlLocalPath(),
         content,
       });
     } catch (err) {
       log.error({ err }, "[SiteManager] Failed to read sites.yml:");
       res.status(500).json({
         exists: false,
-        path: "sites.yml",
         content: null,
         error: err instanceof Error ? err.message : "Failed to read sites.yml",
+      });
+    }
+  });
+
+  app.put("/api/admin/sites-yml", async (req, res) => {
+    const auth = await requireCapability(req, res, "webmaster");
+    if (!auth.authorized) return;
+
+    try {
+      const { content } = req.body as { content?: string };
+      if (typeof content !== "string") {
+        return res.status(400).json({ error: "content is required" });
+      }
+
+      const { validateSitesYmlContent, resetSiteConfigs, getSiteConfigs } = await import("../site-config");
+      const { saveSitesYml } = await import("../sites-yml-store");
+      const { resetSiteContextMap } = await import("../site-manager");
+
+      // Validate before writing so a bad edit cannot brick the local registry.
+      validateSitesYmlContent(content);
+      saveSitesYml(content);
+      resetSiteConfigs();
+      resetSiteContextMap();
+
+      const { getSiteContextMap, getDefaultSite } = await import("../site-manager");
+      const staleSite = res.locals.site;
+      if (staleSite) {
+        const freshCtx = getSiteContextMap().get(staleSite.config.domain) ?? getDefaultSite();
+        res.locals.site = { ...freshCtx, isDevOverride: staleSite.isDevOverride ?? false };
+      }
+
+      const sites = getSiteConfigs().map(({ domain, contentFolder, githubRepoUrl }) => ({
+        domain,
+        contentFolder,
+        githubRepoUrl,
+      }));
+      const siteInfo = getSiteInfo(req, res);
+
+      res.json({
+        success: true,
+        sites,
+        siteInfo,
+        message: "sites.yml saved.",
+      });
+    } catch (err) {
+      log.error({ err }, "[SiteManager] Failed to save sites.yml:");
+      res.status(400).json({
+        success: false,
+        error: err instanceof Error ? err.message : "Failed to save sites.yml",
       });
     }
   });
@@ -930,6 +944,11 @@ export function registerAdminRoutes(app: Express): void {
 
       const destUrl = to as string;
 
+      const beforeFrom =
+        typeof req.body.before_from === "string" && req.body.before_from.trim()
+          ? (req.body.before_from as string).trim()
+          : undefined;
+
       if (isCustomDestination) {
         const written = appendCustomRedirect({
           contentRoot: getContentRoot(res),
@@ -939,14 +958,14 @@ export function registerAdminRoutes(app: Express): void {
           statusCode,
           priority,
           authorName,
+          beforeFrom,
         });
         if (!written.ok) {
-          res.status(written.status).json({ error: written.error });
+          res.status(written.status).json({ error: written.error, code: written.code });
           return;
         }
 
-        getCI(res).scan();
-        clearRedirectCache();
+        afterRedirectWrite(res, written.file);
 
         res.json({
           success: true,
@@ -1004,14 +1023,14 @@ export function registerAdminRoutes(app: Express): void {
           statusCode,
           priority,
           authorName,
+          beforeFrom,
         });
         if (!written.ok) {
-          res.status(written.status).json({ error: written.error });
+          res.status(written.status).json({ error: written.error, code: written.code });
           return;
         }
 
-        getCI(res).scan();
-        clearRedirectCache();
+        afterRedirectWrite(res, written.file);
 
         const toLabel =
           typeof resolvedDest.to === "string"
@@ -1028,6 +1047,15 @@ export function registerAdminRoutes(app: Express): void {
       if (entries.length === 0) {
         res.status(404).json({
           error: `No content found for slug "${parsed.slug}" in ${contentType}`,
+        });
+        return;
+      }
+
+      if (beforeFrom) {
+        res.status(400).json({
+          code: "before_from_page_yaml",
+          error:
+            "before_from is only valid for custom-redirects.yml. Page meta.redirects cannot be reordered with move/before_from.",
         });
         return;
       }
@@ -1086,13 +1114,13 @@ export function registerAdminRoutes(app: Express): void {
       fs.writeFileSync(filePath, yamlContent, "utf-8");
       markFileAsModified(filePath, authorName, undefined, getContentRoot(res));
 
-      getCI(res).scan();
-      clearRedirectCache();
+      const writtenFile = `${entry.directory}/${targetFile}`;
+      afterRedirectWrite(res, writtenFile);
 
       res.json({
         success: true,
         message: `Redirect added: ${normalizedFrom} -> ${destUrl}`,
-        file: `${entry.directory}/${targetFile}`,
+        file: writtenFile,
       });
     } catch (err) {
       log.error({ err: err }, "[Debug] Failed to add redirect:");
@@ -1183,8 +1211,7 @@ export function registerAdminRoutes(app: Express): void {
         fs.writeFileSync(customFilePath, yamlContent, "utf-8");
         markFileAsModified(customFilePath, authorName, undefined, getContentRoot(res));
 
-        getCI(res).scan();
-        clearRedirectCache();
+        afterRedirectWrite(res, sourceFile);
 
         res.json({
           success: true,
@@ -1248,8 +1275,7 @@ export function registerAdminRoutes(app: Express): void {
       fs.writeFileSync(filePath, yamlContent, "utf-8");
       markFileAsModified(filePath, authorName, undefined, getContentRoot(res));
 
-      getCI(res).scan();
-      clearRedirectCache();
+      afterRedirectWrite(res, sourceFile);
 
       res.json({
         success: true,
@@ -1326,6 +1352,44 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
+  app.patch("/api/debug/redirects/move", (req, res) => {
+    try {
+      const { from, before_from: beforeFrom, author } = req.body;
+      const authorName = author && typeof author === "string" ? author : undefined;
+
+      if (!from || typeof from !== "string" || !beforeFrom || typeof beforeFrom !== "string") {
+        res.status(400).json({
+          error: "Both 'from' and 'before_from' are required to move a custom redirect",
+        });
+        return;
+      }
+
+      const moved = moveCustomRedirect({
+        contentRoot: getContentRoot(res),
+        contentRootName: getContentRootName(res),
+        from,
+        beforeFrom,
+        authorName,
+      });
+      if (!moved.ok) {
+        res.status(moved.status).json({ error: moved.error, code: moved.code });
+        return;
+      }
+
+      afterRedirectWrite(res, moved.file);
+
+      res.json({
+        success: true,
+        message: `Moved "${from}" immediately above "${beforeFrom}"`,
+        file: moved.file,
+        index: moved.index,
+      });
+    } catch (err) {
+      log.error({ err: err }, "[Debug] Failed to move redirect:");
+      res.status(500).json({ error: "Failed to move redirect" });
+    }
+  });
+
   app.get("/api/debug/redirects/test", async (req, res) => {
     const url = req.query.url as string;
     if (!url) {
@@ -1347,7 +1411,14 @@ export function registerAdminRoutes(app: Express): void {
         contentRoot: getContentRoot(res),
       }),
     );
-    res.json(enriched);
+    const inspect = inspectRedirect(url, locale, ci, enriched);
+    res.json({
+      ...enriched,
+      winner: inspect.winner,
+      conflicts: inspect.conflicts,
+      fixes: inspect.fixes,
+      live_content: inspect.live_content,
+    });
   });
 
   // Update a custom regex redirect's from/to (inline editor)
@@ -3273,47 +3344,6 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/admin/runtime-issues/ignore-suggest", async (req, res) => {
-    const auth = await requireCapability(req, res, "metrics_view");
-    if (!auth.authorized) return;
-
-    const raw = req.body?.fingerprints;
-    if (!Array.isArray(raw)) {
-      res.status(400).json({ error: "fingerprints must be an array" });
-      return;
-    }
-    const fingerprints = Array.from(
-      new Set(raw.filter((f): f is string => typeof f === "string" && f.trim().length > 0).map((f) => f.trim())),
-    );
-    if (!fingerprints.length) {
-      res.status(400).json({ error: "fingerprints is required" });
-      return;
-    }
-
-    try {
-      const { listRuntimeIssues, getRuntimeIssue } = await import("../runtime-issues-store");
-      const { suggestIgnoreTemplates } = await import("../runtime-issues-ignore-suggest");
-      const site = (res.locals as { site?: { contentRootName?: string; contentRoot?: string } }).site;
-      const siteName = site?.contentRootName || "default";
-      const listed = listRuntimeIssues(siteName, { contentRoot: site?.contentRoot });
-      const seedIssues = fingerprints
-        .map((fp) => getRuntimeIssue(siteName, fp, site?.contentRoot))
-        .filter((issue): issue is NonNullable<typeof issue> => Boolean(issue));
-      if (!seedIssues.length) {
-        res.status(404).json({ error: "No matching runtime issues found" });
-        return;
-      }
-      const seedPaths = seedIssues.map((issue) => issue.path);
-      const allPaths = listed.issues.map((issue) => issue.path);
-      const locales = Array.from(new Set(listed.issues.map((issue) => issue.locale).filter(Boolean)));
-      const result = await suggestIgnoreTemplates({ seedPaths, allPaths, locales });
-      res.json({ ...result, seedPaths });
-    } catch (err) {
-      log.error({ err }, "Failed to suggest ignore templates:");
-      res.status(500).json({ error: "Failed to suggest ignore templates" });
-    }
-  });
-
   app.post("/api/admin/runtime-issues/ignore", async (req, res) => {
     const auth = await requireCapability(req, res, "seo_edit");
     if (!auth.authorized) return;
@@ -3393,12 +3423,16 @@ export function registerAdminRoutes(app: Express): void {
       const auth = await requireCapability(req, res, "webmaster");
       if (!auth.authorized) return;
 
-      const { name, domain, githubRepoUrl, includeSampleContent } = req.body as {
-        name?: string;
-        domain?: string;
-        githubRepoUrl?: string;
-        includeSampleContent?: boolean;
-      };
+      const { name, domain, githubRepoUrl, includeSampleContent, inheritComponentsFrom, fallbackContentFolder } =
+        req.body as {
+          name?: string;
+          domain?: string;
+          githubRepoUrl?: string;
+          includeSampleContent?: boolean;
+          /** Empty string = own registry (no inherit). Omit = default to first site folder. */
+          inheritComponentsFrom?: string | null;
+          fallbackContentFolder?: string | null;
+        };
 
       if (!name || typeof name !== "string") {
         return res.status(400).json({ error: "Missing required field: name" });
@@ -3423,6 +3457,22 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       const { ensureSiteScaffold } = await import("../site-scaffold");
+      const { getDefaultContentFolder } = await import("../site-config");
+      const defaultFolder = getDefaultContentFolder();
+
+      // Default inherit + image fallback to the default site; empty string clears inherit.
+      const inheritFolder =
+        inheritComponentsFrom === "" || inheritComponentsFrom === null
+          ? undefined
+          : (typeof inheritComponentsFrom === "string" && inheritComponentsFrom.trim()) ||
+            defaultFolder;
+      const fallbackFolder =
+        fallbackContentFolder === "" || fallbackContentFolder === null
+          ? undefined
+          : (typeof fallbackContentFolder === "string" && fallbackContentFolder.trim()) ||
+            inheritFolder ||
+            defaultFolder;
+
       ensureSiteScaffold({
         contentFolder: folderName,
         displayName: name,
@@ -3433,7 +3483,10 @@ export function registerAdminRoutes(app: Express): void {
       const { readSitesYmlLocal, saveSitesYml } = await import("../sites-yml-store");
       let sitesContent = readSitesYmlLocal() ?? "";
       if (sitesContent && !sitesContent.endsWith("\n")) sitesContent += "\n";
-      const newEntry = `${domain}:\n  content_folder: ${folderName}\n${githubRepoUrl ? `  github_repo_url: ${githubRepoUrl}\n` : ""}`;
+      let newEntry = `${domain}:\n  content_folder: ${folderName}\n`;
+      if (githubRepoUrl) newEntry += `  github_repo_url: ${githubRepoUrl}\n`;
+      if (inheritFolder) newEntry += `  inherit_components_from: ${inheritFolder}\n`;
+      if (fallbackFolder) newEntry += `  fallback_content_folder: ${fallbackFolder}\n`;
       sitesContent += newEntry;
       saveSitesYml(sitesContent);
       resetSiteConfigs();

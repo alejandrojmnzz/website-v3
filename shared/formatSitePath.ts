@@ -122,3 +122,30 @@ export function toContentFileRef(filePath: string, options?: FormatSitePathOptio
 export function formatSitePathSpaced(filePath: string, options?: FormatSitePathOptions): string {
   return formatSitePath(filePath, options).split("/").join(" / ");
 }
+
+/** True when a quoted or standalone string looks like a content YAML/site path (not a URL). */
+export function isContentFilePath(p: string): boolean {
+  return (
+    /\.ya?ml$/i.test(p) ||
+    /(?:^|\/)(?:site_[^/]+|4geeks-com|content)\//.test(p)
+  );
+}
+
+/**
+ * Rewrite content-file paths inside a validation message to site-relative form
+ * (path after the site_* folder). Quoted URLs such as "/landing/foo" are left unchanged.
+ */
+export function formatSitePathsInText(
+  text: string,
+  formatPath?: (filePath: string) => string,
+  options?: FormatSitePathOptions,
+): string {
+  if (!text) return text;
+  const fmt = formatPath ?? ((p: string) => formatSitePath(p, options));
+  if (!text.includes('"') && isContentFilePath(text)) {
+    return fmt(text);
+  }
+  return text.replace(/"([^"]+)"/g, (full, inner: string) =>
+    isContentFilePath(inner) ? `"${fmt(inner)}"` : full,
+  );
+}
