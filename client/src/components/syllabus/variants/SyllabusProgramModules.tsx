@@ -452,7 +452,7 @@ function SyllabusProgramModulesVariant({ data }: { data: SyllabusProgramModules 
             <Card className="h-full p-6 lg:p-8 bg-primary/5 shadow-card border-0 lg:border-l-4 lg:border-l-primary lg:rounded-r-none">
               <div className="mb-8 ">
                 <h2 
-                  className="text-h2 text-foreground mb-1"
+                  className="text-h2 text-foreground mb-3"
                   data-testid="text-syllabus-program-title"
                 >
                   {data.program_title}
