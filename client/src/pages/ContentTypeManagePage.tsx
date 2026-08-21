@@ -672,55 +672,75 @@ function ClearCacheConfirmDialog({
 function RequiredFieldConfirmDialog({
   open,
   onOpenChange,
-  onConfirm,
+  onSelect,
   fieldName,
-  currentlyRequired,
+  currentRequired,
+  allowAttachedMode,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: () => void;
+  onSelect: (next: false | true | "attached") => void;
   fieldName: string | null;
-  currentlyRequired: boolean;
+  currentRequired: false | true | "attached";
+  /** Show "Required when attached" only for shared-layout content types. */
+  allowAttachedMode: boolean;
 }) {
-  const enabling = !currentlyRequired;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[480px]" data-testid="dialog-required-field-confirm">
+      <DialogContent className="sm:max-w-[520px]" data-testid="dialog-required-field-confirm">
         <DialogHeader>
-          <DialogTitle>
-            {enabling ? "Mark as required for publish" : "Remove required for publish"}
-          </DialogTitle>
+          <DialogTitle>Required for publish</DialogTitle>
           <DialogDescription>
             {fieldName ? (
               <>
                 Field{" "}
                 <code className="font-mono text-foreground text-xs">{fieldName}</code>
+                {currentRequired === true
+                  ? " — currently required always (even detached)"
+                  : currentRequired === "attached"
+                    ? " — currently required only on template (attached)"
+                    : " — currently never required"}
               </>
             ) : (
-              "Required for publish"
+              "Choose how this field is required"
             )}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 text-sm text-muted-foreground" data-testid="fields-required-education">
           <p>
-            <strong className="font-medium text-foreground">Required for publish</strong> means drafts may
-            leave this field empty; publishing requires a value; live saves cannot clear it.
+            <strong className="font-medium text-foreground">Never required</strong> — drafts and live
+            entries may leave this field empty.
+          </p>
+          {allowAttachedMode ? (
+            <p>
+              <strong className="font-medium text-foreground">Required only on template (attached)</strong>{" "}
+              (<code className="font-mono text-[10px]">editor.required: attached</code> — publishing and
+              live saves need a value while the entry uses the shared template. Entries with{" "}
+              <code className="font-mono text-[10px]">detached: true</code> skip this field (Fields UI
+              shows “Optional while detached”). JSON fields must also satisfy their schema.
+            </p>
+          ) : null}
+          <p>
+            <strong className="font-medium text-foreground">Required always (even detached)</strong>{" "}
+            <code className="font-mono text-[10px]">editor.required: true</code> — drafts may be empty;
+            publishing and live saves need a value whether attached or detached (JSON fields must also
+            satisfy their schema).
           </p>
           <p>
             Live pages also always need{" "}
             <code className="font-mono bg-muted px-1 rounded text-xs">meta.page_title</code> and{" "}
-            <code className="font-mono bg-muted px-1 rounded text-xs">meta.description</code>{" "}
-            (Meta tab / SEO) — separate from this asterisk.
+            <code className="font-mono bg-muted px-1 rounded text-xs">meta.description</code> — separate
+            from this asterisk.
           </p>
           <p className="text-xs">
             Read more:{" "}
-            <code className="font-mono text-[10px]">server/content-types.ts</code>{" "}
-            <code className="font-mono text-[10px]">editor.required</code>,{" "}
+            <code className="font-mono text-[10px]">shared/validateRequiredFields.ts</code>,{" "}
             <code className="font-mono text-[10px]">server/live-entry-seo-gate.ts</code>,{" "}
-            <code className="font-mono text-[10px]">client/src/hooks/usePageMeta.ts</code>.
+            <code className="font-mono text-[10px]">scripts/validation/validators/required-fields.ts</code>
+            , <code className="font-mono text-[10px]">server/shared-layout-detach.ts</code>.
           </p>
         </div>
-        <DialogFooter>
+        <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
@@ -728,8 +748,41 @@ function RequiredFieldConfirmDialog({
           >
             Cancel
           </Button>
-          <Button onClick={onConfirm} data-testid="button-confirm-required-field">
-            {enabling ? "Mark required" : "Remove required"}
+          <Button
+            variant={currentRequired === false ? "default" : "secondary"}
+            onClick={() => onSelect(false)}
+            data-testid="button-required-mode-none"
+            className="justify-start gap-2"
+          >
+            <span className="inline-flex w-7 justify-center opacity-40" aria-hidden>
+              <Asterisk className="h-3.5 w-3.5" />
+            </span>
+            Never required
+          </Button>
+          {allowAttachedMode ? (
+            <Button
+              variant={currentRequired === "attached" ? "default" : "secondary"}
+              onClick={() => onSelect("attached")}
+              data-testid="button-required-mode-attached"
+              className="justify-start gap-2"
+            >
+              <span className="inline-flex w-7 items-center justify-center" aria-hidden>
+                <Asterisk className="h-3.5 w-3.5" />
+                <Asterisk className="h-3.5 w-3.5 -ml-2" />
+              </span>
+              Required only on template (attached)
+            </Button>
+          ) : null}
+          <Button
+            variant={currentRequired === true ? "default" : "secondary"}
+            onClick={() => onSelect(true)}
+            data-testid="button-required-mode-always"
+            className="justify-start gap-2"
+          >
+            <span className="inline-flex w-7 justify-center" aria-hidden>
+              <Asterisk className="h-3.5 w-3.5" />
+            </span>
+            Required always (even detached)
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -3889,13 +3942,18 @@ function FieldMappingDialog({
                     overlays under <code className="font-mono">field_overrides</code>.
                   </p>
                   <p>
-                    Asterisk (<code className="font-mono">editor.required</code>): Required for publish —
-                    drafts may be empty; publishing requires a value; live saves cannot clear it. Live pages
-                    also always need <code className="font-mono">meta.page_title</code> and{" "}
+                    Asterisk (<code className="font-mono">editor.required</code>): single{" "}
+                    <strong className="font-medium text-foreground">*</strong> = required for
+                    publish on all live entries; double{" "}
+                    <strong className="font-medium text-foreground">**</strong> = required only
+                    when the entry uses the shared template (skipped if{" "}
+                    <code className="font-mono">detached: true</code>). Drafts may be empty; JSON
+                    fields must satisfy their schema. Live pages also always need{" "}
+                    <code className="font-mono">meta.page_title</code> and{" "}
                     <code className="font-mono">meta.description</code>. See{" "}
-                    <code className="font-mono">server/content-types.ts</code>,{" "}
+                    <code className="font-mono">shared/validateRequiredFields.ts</code>,{" "}
                     <code className="font-mono">server/live-entry-seo-gate.ts</code>,{" "}
-                    <code className="font-mono">client/src/hooks/usePageMeta.ts</code>.
+                    <code className="font-mono">scripts/validation/validators/required-fields.ts</code>.
                   </p>
                 </div>
               )}
@@ -4137,16 +4195,47 @@ function FieldMappingDialog({
                           {(isDbBacked || isFn || currentSrc === key || !showComputeEditor) && (
                             <FieldValidationIndicator result={vResult} optional={optionalFields[key]} />
                           )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className={`flex-shrink-0 ${editorHints[key]?.required ? "text-primary" : ""}`}
-                            title="Required for publish"
-                            onClick={() => setPendingRequiredField(key)}
-                            data-testid={`button-required-field-${key}`}
-                          >
-                            <Asterisk className="h-3.5 w-3.5" />
-                          </Button>
+                          <TooltipProvider delayDuration={200}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className={`flex-shrink-0 ${
+                                    editorHints[key]?.required === true ||
+                                    editorHints[key]?.required === "attached"
+                                      ? "text-primary"
+                                      : ""
+                                  }`}
+                                  onClick={() => setPendingRequiredField(key)}
+                                  data-testid={`button-required-field-${key}`}
+                                >
+                                  {editorHints[key]?.required === "attached" ? (
+                                    <span
+                                      className="inline-flex items-center"
+                                      aria-hidden
+                                    >
+                                      <Asterisk className="h-3.5 w-3.5" />
+                                      <Asterisk className="h-3.5 w-3.5 -ml-2" />
+                                    </span>
+                                  ) : (
+                                    <Asterisk className="h-3.5 w-3.5" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent
+                                side="top"
+                                className="text-xs"
+                                data-testid={`tooltip-required-field-${key}`}
+                              >
+                                {editorHints[key]?.required === "attached"
+                                  ? "** When attached"
+                                  : editorHints[key]?.required === true
+                                    ? "* Always required"
+                                    : "* Always · ** Attached"}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -4483,21 +4572,26 @@ function FieldMappingDialog({
     <RequiredFieldConfirmDialog
       open={pendingRequiredField !== null}
       fieldName={pendingRequiredField}
-      currentlyRequired={
-        pendingRequiredField ? !!editorHints[pendingRequiredField]?.required : false
+      currentRequired={
+        pendingRequiredField
+          ? editorHints[pendingRequiredField]?.required === "attached"
+            ? "attached"
+            : editorHints[pendingRequiredField]?.required === true
+              ? true
+              : false
+          : false
       }
+      allowAttachedMode={!!config?.single_template || !!config?.database?.slug}
       onOpenChange={(next) => {
         if (!next) setPendingRequiredField(null);
       }}
-      onConfirm={() => {
+      onSelect={(nextRequired) => {
         const field = pendingRequiredField;
         if (!field) return;
         setEditorHints((prev) => {
           const cur = prev[field] || {};
-          const nextRequired = !cur.required;
-          const next = { ...cur, required: nextRequired };
-          if (!nextRequired) {
-            const { required: _r, ...rest } = next;
+          if (nextRequired === false) {
+            const { required: _r, ...rest } = cur;
             if (Object.keys(rest).length === 0) {
               const clone = { ...prev };
               delete clone[field];
@@ -4505,7 +4599,7 @@ function FieldMappingDialog({
             }
             return { ...prev, [field]: rest };
           }
-          return { ...prev, [field]: next };
+          return { ...prev, [field]: { ...cur, required: nextRequired } };
         });
         setPendingRequiredField(null);
       }}

@@ -1986,7 +1986,19 @@ export function DebugBubble() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast({ title: data.error || "Failed to re-attach entry", variant: "destructive" });
+        const missing = Array.isArray(data.missing_fields)
+          ? (data.missing_fields as string[]).join(", ")
+          : "";
+        toast({
+          title:
+            data.code === "reattach_missing_required_fields"
+              ? "Cannot re-attach — required fields missing"
+              : "Failed to re-attach entry",
+          description: [data.error, missing ? `Missing: ${missing}` : ""]
+            .filter(Boolean)
+            .join("\n"),
+          variant: "destructive",
+        });
         return;
       }
       toast({

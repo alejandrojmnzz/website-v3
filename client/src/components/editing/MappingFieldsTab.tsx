@@ -1171,6 +1171,19 @@ export function MappingFieldsTab({
       ? variant.trim()
       : undefined;
 
+  const { data: attachStatus } = useQuery<{ detached?: boolean }>({
+    queryKey: ["/api/content", contentType, slug, "attach-status", locale],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/content/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}/attach-status?locale=${encodeURIComponent(locale)}`,
+      );
+      if (!res.ok) return { detached: false };
+      return res.json();
+    },
+    staleTime: 30_000,
+  });
+  const entryDetached = !!attachStatus?.detached;
+
   const provenanceKey = [
     "/api/content-types",
     contentType,
@@ -1637,6 +1650,7 @@ export function MappingFieldsTab({
           dbName={editing.level === "database" ? ctConfig?.database?.slug : undefined}
           item={{ [editing.field]: editing.value }}
           title={`Edit ${editing.field}`}
+          entryDetached={entryDetached}
           onClose={() => setEditing(null)}
           onSave={async (built) => {
             if (editing.level === "content_type") {

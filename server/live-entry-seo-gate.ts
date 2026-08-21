@@ -45,6 +45,7 @@ import {
   validateFormFieldSources,
   formatFormFieldSourceErrors,
 } from "@shared/validateFormFieldSources";
+import { getTrackingSettings } from "./settings";
 
 export type LiveSeoGateOptions = {
   contentType: string;
@@ -107,9 +108,15 @@ export function evaluateLiveEntrySeoAndRequiredFields(
 
   const config = getContentTypeConfig(contentType, contentRoot);
   const editor = config?.editor as
-    | Record<string, { required?: boolean }>
+    | Record<string, { required?: boolean | "attached"; type?: string; schema?: Record<string, unknown> }>
     | undefined;
-  const requiredEditorKeys = listRequiredEditorFields(editor);
+  const shared = isSharedLayoutType(contentType, contentRoot);
+  const detached = isEntryDetached(contentType, slug, contentRoot);
+  const requiredOpts = {
+    isSharedLayout: shared,
+    isDetached: detached,
+  };
+  const requiredEditorKeys = listRequiredEditorFields(editor, requiredOpts);
   const flags = resolveMicroValidationFlags({
     intent,
     touchedPaths,
@@ -118,10 +125,7 @@ export function evaluateLiveEntrySeoAndRequiredFields(
 
   // Attached shared-layout: meta often lives only on single.{locale}.yml as {{ single.* }}.
   let pageForResolve = pageData;
-  if (
-    isSharedLayoutType(contentType, contentRoot) &&
-    !isEntryDetached(contentType, slug, contentRoot)
-  ) {
+  if (shared && !detached) {
     const template = mergeSingleTemplate(
       contentType,
       locale,
@@ -150,6 +154,26 @@ export function evaluateLiveEntrySeoAndRequiredFields(
   >;
   const meta = resolvedPage.meta;
 
+  let conversionNames: string[] = [];
+  let crmTags: string[] = [];
+  try {
+    const tracking = getTrackingSettings(contentRoot);
+    conversionNames = (tracking.conversion_events || [])
+      .map((e) => (typeof e === "string" ? e : (e as { name?: string })?.name))
+      .filter((n): n is string => typeof n === "string" && n.trim().length > 0);
+    crmTags = Array.isArray(tracking.leads_expected_tags)
+      ? tracking.leads_expected_tags.filter((t): t is string => typeof t === "string")
+      : [];
+  } catch {
+    /* settings may be unavailable in some test harnesses */
+  }
+
+  const fieldOpts = {
+    ...requiredOpts,
+    conversionNames,
+    crmTags,
+  };
+
   const metaResult =
     flags.runFull || flags.metaKeys === null
       ? validateRequiredMeta(meta)
@@ -161,12 +185,14 @@ export function evaluateLiveEntrySeoAndRequiredFields(
           editor,
           { ...singleEntry, ...resolvedPage },
           mode,
+          fieldOpts,
         )
       : validateRequiredFieldsForKeys(
           editor,
           { ...singleEntry, ...resolvedPage },
           flags.bodyKeys,
           mode,
+          fieldOpts,
         );
 
   const missing_fields: string[] = [];

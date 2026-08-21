@@ -228,6 +228,7 @@ async function queueRedirectsJob(args: OnSaveValidationArgs): Promise<void> {
       validators: ["redirects"],
       freshness: "hard",
       include_artifacts: false,
+      confirm: true,
     });
     if (result.status === "busy") {
       log.info(

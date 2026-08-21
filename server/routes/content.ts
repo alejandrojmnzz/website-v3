@@ -333,7 +333,7 @@ import {
   resolvePreviewBaseSlug,
   resolveVersioningReadSlug,
 } from "../shared-layout-entry";
-import { detachEntry, reattachEntry, getReattachSectionLossPreview } from "../shared-layout-detach";
+import { detachEntry, reattachEntry, getReattachSectionLossPreview, ReattachRequiredFieldsError } from "../shared-layout-detach";
 import {
   buildLocaleUnavailablePayload,
   isEmptyDetachedLocaleEntry,
@@ -4125,18 +4125,31 @@ export function registerContentRoutes(app: Express): void {
       }
 
       const confirm = req.body?.confirm === true;
-      const result = reattachEntry({
-        contentType: type,
-        slug,
-        contentRoot: getContentRoot(res),
-        author: auth.author,
-        confirm,
-      });
+      try {
+        const result = reattachEntry({
+          contentType: type,
+          slug,
+          contentRoot: getContentRoot(res),
+          author: auth.author,
+          confirm,
+        });
 
-      getCI(res).refresh();
-      invalidateContentCaches(type, getCI(res));
+        getCI(res).refresh();
+        invalidateContentCaches(type, getCI(res));
 
-      res.json({ success: true, detached: false, ...result });
+        res.json({ success: true, detached: false, ...result });
+      } catch (err) {
+        if (err instanceof ReattachRequiredFieldsError) {
+          res.status(400).json({
+            error: err.message,
+            code: err.code,
+            missing_fields: err.missing_fields,
+            per_locale: err.per_locale,
+          });
+          return;
+        }
+        throw err;
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const status =
@@ -4145,7 +4158,8 @@ export function registerContentRoutes(app: Express): void {
         msg.includes("not a shared-layout") ||
         msg.includes("Invalid entry") ||
         msg.includes("Unknown content type") ||
-        msg.includes("not found")
+        msg.includes("not found") ||
+        msg.includes("reattach_missing_required")
           ? 400
           : 500;
       res.status(status).json({ error: msg });

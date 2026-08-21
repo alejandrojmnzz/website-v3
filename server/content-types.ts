@@ -62,8 +62,11 @@ export type ContentTypeEditorHint = {
   /**
    * When true: drafts may omit a value; publishing to live requires non-empty;
    * live saves cannot clear the field. Distinct from field_mapping `?` (key may be missing).
+   * When `"attached"`: same rules only for shared-layout entries that are not detached
+   * (`detached: true` skips). On non–shared-layout types, `"attached"` behaves like true.
+   * JSON fields must also satisfy editor.schema (and call_to_action semantics when applicable).
    */
-  required?: boolean;
+  required?: boolean | "attached";
   /**
    * Required when type is `json`. JSON Schema for structured values; exact
    * `{{ single.field }}` binds can return arrays/objects at delivery.
@@ -220,7 +223,11 @@ const CONFIG_HEADER = `# Content Types Configuration
 #   date, datetime, image, pdf, select, tags, json, relation. Optional: options, populate_options,
 #   allow_custom_values, split_comma_values, description, required, schema.
 #   required: when true, drafts may be empty; publish/live saves require a non-empty value
-#     (cannot clear on a live entry). Distinct from field_mapping ? prefix (key may be missing).
+#     (cannot clear on a live entry). When "attached", same rules only for shared-layout
+#     entries that are not detached (detached: true skips). On non–shared-layout types,
+#     "attached" behaves like true. JSON editor fields must also satisfy editor.schema
+#     (call_to_action also checks conversion_name / CRM tags). Distinct from field_mapping
+#     ? prefix (key may be missing).
 #   split_comma_values: when true, string cells like "a, b" become tokens a and b (arrays always
 #     expand). WARNING: values that legitimately contain commas (e.g. "San Francisco, CA") will
 #     also be split. Saving a tags field may normalize CSV strings into string arrays.

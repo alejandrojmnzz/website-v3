@@ -12,6 +12,12 @@ import {
   type ContentTypeConfig,
 } from "./content.js";
 import { actionRequired, type McpTextResult, type NextAction } from "./respond.js";
+import {
+  listRequiredEditorFields,
+  validateRequiredFields,
+  normalizeRequiredFlag,
+  type ListRequiredEditorFieldsOpts,
+} from "../../shared/validateRequiredFields.js";
 
 export const MULTI_SITE_TOOL_BLURB =
   "Multi-site: always pass site (domain from sites.yml, e.g. \"4geeks.com\"). If unsure, call list_sites first.";
@@ -54,7 +60,7 @@ export function listExtraUrlPatternParams(
 }
 
 export type EditorFieldHint = {
-  required?: boolean;
+  required?: boolean | "attached";
   type?: string;
   allow_custom_values?: boolean;
   populate_options?: boolean;
@@ -68,11 +74,28 @@ export function getEditorConfig(config: ContentTypeConfig): Record<string, Edito
   return editor && typeof editor === "object" ? editor : {};
 }
 
-export function requiredEditorFields(config: ContentTypeConfig): string[] {
+/** Effective required keys for create/go-live (defaults: shared-layout aware, not detached). */
+export function requiredEditorFields(
+  config: ContentTypeConfig,
+  opts?: ListRequiredEditorFieldsOpts,
+): string[] {
   const editor = getEditorConfig(config);
-  return Object.entries(editor)
-    .filter(([, hint]) => hint?.required === true)
-    .map(([k]) => k);
+  return listRequiredEditorFields(editor, {
+    isSharedLayout: opts?.isSharedLayout ?? isSharedLayoutConfig(config),
+    isDetached: opts?.isDetached ?? false,
+  });
+}
+
+/** Per-field required mode for get_content_type_info (`false` | `true` | `attached`). */
+export function editorRequiredModes(
+  config: ContentTypeConfig,
+): Record<string, false | true | "attached"> {
+  const out: Record<string, false | true | "attached"> = {};
+  for (const [key, hint] of Object.entries(getEditorConfig(config))) {
+    const flag = normalizeRequiredFlag(hint?.required);
+    out[key] = flag === false ? false : flag;
+  }
+  return out;
 }
 
 /** Top-level field paths writable via update_fields. */
@@ -167,17 +190,20 @@ export function missingRequiredFields(
   config: ContentTypeConfig,
   common: Record<string, unknown>,
   localePayload: Record<string, unknown>,
+  opts?: ListRequiredEditorFieldsOpts,
 ): string[] {
-  const missing: string[] = [];
-  for (const field of requiredEditorFields(config)) {
-    const val = localePayload[field] ?? common[field];
-    if (val === undefined || val === null || val === "") {
-      missing.push(field);
-      continue;
-    }
-    if (typeof val === "string" && !val.trim()) missing.push(field);
-  }
-  return [...new Set(missing)];
+  const merged = { ...common, ...localePayload };
+  const result = validateRequiredFields(
+    getEditorConfig(config),
+    merged,
+    "publish",
+    {
+      isSharedLayout: opts?.isSharedLayout ?? isSharedLayoutConfig(config),
+      isDetached: opts?.isDetached ?? false,
+    },
+  );
+  if (result.ok) return [];
+  return [...new Set(result.errors.map((e) => e.field))];
 }
 
 export function siteFailResult(

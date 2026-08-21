@@ -76,6 +76,7 @@ import {
   collectProposedUrlParamValues,
   missingRequiredFields,
   getEditorConfig,
+  editorRequiredModes,
   bodyModelForConfig,
   createViaForConfig,
 } from "../lib/entry-helpers.js";
@@ -1197,6 +1198,7 @@ export function registerPageTools(
                 reason: "After jobs finish, hard-refresh SEO diagnostics to confirm MISSING_OG_IMAGE cleared",
                 args_hint: {
                   freshness: "hard",
+                  confirm: true,
                   ...(slugs && slugs.length ? { slugs } : {}),
                   categories: ["seo"],
                   ...(site ? { site } : {}),
@@ -1216,7 +1218,9 @@ export function registerPageTools(
   mcp.tool(
     "run_entry_diagnostics",
     "Start or read page diagnostics against the unified validation-cache issue store. Does NOT wait for validators to finish. " +
-    "Returns status 'cached' (issues from validation-cache when fresh) or 'queued'/'running' with job_id. " +
+    "Returns status 'cached' (issues from validation-cache when fresh), 'needs_confirm' (re-call with confirm:true), or 'queued'/'running' with job_id. " +
+    "When a NEW job would start (freshness hard, or stale under max_age), confirm:true is required — agents may set the flag after reading the gate (last full site-wide duration). " +
+    "Same-scope reuse of an in-flight job and pure 'cached' responses skip confirm. " +
     "When queued/running: wait retry_after_seconds then call get_diagnostics_job — do NOT re-call this tool to poll. " +
     "freshness 'max_age' (default) recomputes only URLs whose lastFullRunAt is older than max_age_seconds (default 86400); " +
     "'hard' forces a recompute. Optional slugs scopes the run to entry-local validators only (never cross-entry like redirects — avoids false all-clear). " +
@@ -1224,8 +1228,8 @@ export function registerPageTools(
     "(parent reloads cache when the job completes; clears obsolete codes for ran validators in scope). " +
     "Concurrent start while another job holds the site returns busy (no queue). On-save entry-local writes are deferred while the lock is held. " +
     "non_effects: entry/slug runs do not refresh redirects/slug-conflicts/sitemap; fixing meta does not clear REDIRECT_CONFLICT; " +
-    "Cached issues in memory refresh only after job completion. " +
-    "Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + slugs. " +
+    "Mid-run get_diagnostics_job may return partial issuesBySlug (URLs flushed since job started only). Authoritative after completed. " +
+    "Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + slugs + confirm:true. " +
     "In-app content saves also debounce entry-local validation; redirect-config changes queue redirects separately. " +
     "Requires a mutating staff cap (not metrics_view/content_view only).",
     {
@@ -1233,9 +1237,10 @@ export function registerPageTools(
       categories: z.array(z.string()).optional().describe("Filter returned issues to categories (e.g. ['seo']). Does not narrow the job."),
       freshness: z.enum(["hard", "max_age"]).optional().describe("max_age (default) uses lastFullRunAt; hard always recomputes."),
       max_age_seconds: z.number().optional().describe("TTL for max_age freshness (default 86400). Ignored when freshness is hard."),
+      confirm: z.boolean().optional().describe("Set true to start a new diagnostics job after needs_confirm. Not required for cached or same-scope reuse."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ slugs, categories, freshness, max_age_seconds, site }) => {
+    async ({ slugs, categories, freshness, max_age_seconds, confirm, site }) => {
       if (mcpToken && grants && !grantsCanMutateMetrics(grants)) {
         return denyResponse("metrics_mutate");
       }
@@ -1243,18 +1248,28 @@ export function registerPageTools(
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
       const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+      const requestBody = {
+        slugs: slugs && slugs.length > 0 ? slugs : undefined,
+        categories,
+        freshness: freshness ?? "max_age",
+        max_age_seconds: max_age_seconds ?? 86400,
+        ...(confirm === true ? { confirm: true } : {}),
+      };
+      const retryArgsHint = {
+        ...(slugs && slugs.length ? { slugs } : {}),
+        ...(categories ? { categories } : {}),
+        freshness: freshness ?? "max_age",
+        ...(max_age_seconds != null ? { max_age_seconds } : {}),
+        confirm: true,
+        ...(site ? { site } : {}),
+      };
       try {
         const res = await fetch(
           `http://localhost:${MAIN_SERVER_PORT}/api/validation/diagnostics-jobs${q}`,
           {
             method: "POST",
             headers: internalHeaders(),
-            body: JSON.stringify({
-              slugs: slugs && slugs.length > 0 ? slugs : undefined,
-              categories,
-              freshness: freshness ?? "max_age",
-              max_age_seconds: max_age_seconds ?? 86400,
-            }),
+            body: JSON.stringify(requestBody),
           },
         );
         const data = await res.json() as Record<string, unknown>;
@@ -1289,6 +1304,29 @@ export function registerPageTools(
 
         if (!res.ok) {
           return fail(String(data.message ?? data.error ?? `diagnostics-jobs failed (${res.status})`), data);
+        }
+
+        if (data.status === "needs_confirm") {
+          return actionRequired(
+            {
+              success: false,
+              action_required: "confirm_run_diagnostics",
+              code: "confirm_run_diagnostics",
+              message: String(data.message ?? "Set confirm: true to start diagnostics."),
+              scoped: data.scoped === true,
+              last_site_wide_run_at: data.last_site_wide_run_at ?? null,
+              last_site_wide_run_ago: data.last_site_wide_run_ago ?? "never",
+              last_site_wide_duration_ms: data.last_site_wide_duration_ms ?? null,
+              last_site_wide_duration_human: data.last_site_wide_duration_human ?? null,
+              last_site_wide_url_count: data.last_site_wide_url_count ?? null,
+            },
+            [{
+              tool: "run_entry_diagnostics",
+              reason: "Retry with confirm: true after reviewing last full site-wide duration",
+              args_hint: retryArgsHint,
+              priority: "required",
+            }],
+          );
         }
 
         if (data.status === "cached") {
@@ -1353,6 +1391,7 @@ export function registerPageTools(
     "get_diagnostics_job",
     "Poll an async diagnostics job started by run_entry_diagnostics. " +
     "If status is queued/running: wait retry_after_seconds then call this tool again with the same job_id. " +
+    "While running, issuesBySlug may include partial results (only URLs whose lastFullRunAt is >= job startedAt). " +
     "Do not call run_entry_diagnostics to poll. Terminal: completed (issuesBySlug + cache_updated after worker finishes), failed, or not_found " +
     "Disk validation-cache is authoritative after completed. Requires a mutating staff cap (not metrics_view/content_view only).",
     {
@@ -1390,7 +1429,7 @@ export function registerPageTools(
               next_actions: [{
                 tool: "run_entry_diagnostics",
                 reason: "Start a new diagnostics job",
-                args_hint: { freshness: "hard", ...(site ? { site } : {}) },
+                args_hint: { freshness: "hard", confirm: true, ...(site ? { site } : {}) },
                 priority: "recommended",
               }],
             },
@@ -1404,6 +1443,10 @@ export function registerPageTools(
         const status = String(data.status ?? "");
         if (status === "queued" || status === "running") {
           const retry = Number(data.retry_after_seconds ?? 5);
+          const issuesBySlug = data.issuesBySlug ?? {};
+          const hasPartial =
+            data.partial === true ||
+            (issuesBySlug && typeof issuesBySlug === "object" && Object.keys(issuesBySlug as object).length > 0);
           return ok(
             {
               status,
@@ -1412,12 +1455,24 @@ export function registerPageTools(
               total: data.total,
               retry_after_seconds: retry,
               scope: data.scope,
+              issuesBySlug,
+              partial: data.partial === true,
+              message: data.message,
             },
             {
-              warnings: [{
-                code: "diagnostics_async",
-                message: "Job still running. Wait retry_after_seconds then call get_diagnostics_job again.",
-              }],
+              warnings: [
+                {
+                  code: "diagnostics_async",
+                  message: "Job still running. Wait retry_after_seconds then call get_diagnostics_job again.",
+                },
+                ...(hasPartial
+                  ? [{
+                      code: "partial_results_job_still_running",
+                      message:
+                        "issuesBySlug only includes URLs flushed since this job started. Unvisited URLs are omitted until completed.",
+                    }]
+                  : []),
+              ],
               next_actions: [{
                 tool: "get_diagnostics_job",
                 reason: "Continue polling",
@@ -1441,7 +1496,7 @@ export function registerPageTools(
               next_actions: [{
                 tool: "run_entry_diagnostics",
                 reason: "Start a new diagnostics job after failure",
-                args_hint: { freshness: "hard", ...(site ? { site } : {}) },
+                args_hint: { freshness: "hard", confirm: true, ...(site ? { site } : {}) },
                 priority: "optional",
               }],
             },
@@ -3523,7 +3578,7 @@ export function registerPageTools(
           tool: "run_entry_diagnostics",
           priority: "recommended",
           reason: "Hard-refresh diagnostics for the new live entry (async — then poll get_diagnostics_job)",
-          args_hint: { slugs: [slug], freshness: "hard", ...siteHint },
+          args_hint: { slugs: [slug], freshness: "hard", confirm: true, ...siteHint },
         });
       } else {
         warnings.push({
@@ -4651,7 +4706,7 @@ export function registerPageTools(
             {
               tool: "run_entry_diagnostics",
               reason: "Validate before going live (async — then poll get_diagnostics_job)",
-              args_hint: { slugs: [slug], freshness: "hard", ...(site ? { site } : {}) },
+              args_hint: { slugs: [slug], freshness: "hard", confirm: true, ...(site ? { site } : {}) },
               priority: "recommended",
             },
             {
@@ -4763,6 +4818,7 @@ export function registerPageTools(
         detachEntry,
         reattachEntry,
         getReattachSectionLossPreview,
+        ReattachRequiredFieldsError,
       } = await import("../../server/shared-layout-detach.js");
 
       if (!isSharedLayoutType(contentType, contentPath)) {
@@ -5031,12 +5087,79 @@ export function registerPageTools(
           },
         );
       } catch (e) {
+        if (e instanceof ReattachRequiredFieldsError) {
+          const missing = e.missing_fields;
+          const locales = Object.keys(e.per_locale).filter(
+            (loc) => (e.per_locale[loc] || []).length > 0,
+          );
+          return actionRequired(
+            {
+              success: false,
+              action_required: "fix_reattach_required_fields",
+              code: e.code,
+              message: e.message,
+              contentType,
+              slug,
+              missing_fields: missing,
+              per_locale: e.per_locale,
+              warnings: [
+                {
+                  code: "reattach_does_not_seed_fields",
+                  message:
+                    "Reattach does not invent call_to_action / faq_entries / content from detached sections. Set Fields on each live locale first.",
+                },
+              ],
+            },
+            [
+              {
+                tool: "update_fields",
+                reason:
+                  "Fill attached-required fields on each failing live locale (see missing_fields), then retry set_entry_attachment",
+                args_hint: {
+                  contentType,
+                  slug,
+                  locale: locales[0] || previewLocale,
+                  confirm_live_edit: true,
+                  updates: missing
+                    .map((m) => {
+                      const parts = m.split(".");
+                      const locale = parts[0];
+                      const fieldPath = parts.slice(1).join(".");
+                      const topField = fieldPath.split(".")[0] || fieldPath;
+                      return {
+                        field_path: topField,
+                        value: `<non-empty schema-valid value for ${fieldPath} on locale ${locale}>`,
+                      };
+                    })
+                    .filter(
+                      (u, i, arr) =>
+                        arr.findIndex((x) => x.field_path === u.field_path) === i,
+                    ),
+                  ...siteHint,
+                },
+                priority: "required" as const,
+              },
+              {
+                tool: "set_entry_attachment",
+                reason: "Retry reattach after Fields are filled",
+                args_hint: {
+                  contentType,
+                  slug,
+                  action: "reattach",
+                  confirm: true,
+                  locale: previewLocale,
+                  ...siteHint,
+                },
+                priority: "required" as const,
+              },
+            ],
+          );
+        }
         return fail((e as Error).message, { code: "reattach_failed", contentType, slug });
       }
-    }
+    },
   );
 
-  // get_section_bindings
   mcp.tool(
     "get_section_bindings",
     "Read-only: look up the section-binding group for a section by contentType, slug, and sectionIndex. " +
@@ -5282,7 +5405,7 @@ export function registerPageTools(
             value: h.value || "slug",
             label: h.label || "name",
             multiple: !!h.multiple,
-            required: !!h.required,
+            required: h.required === true || h.required === "attached" ? h.required : false,
             description: h.description || null,
             system_hints: system_hints ?? [],
             storage_note:
@@ -5370,6 +5493,7 @@ export function registerPageTools(
             url_params: urlParams,
             field_mapping: config.field_mapping ?? null,
             editor,
+            editor_required_modes: editorRequiredModes(config),
             relation_fields,
             immutable_slug: !!(config as { immutable_slug?: boolean }).immutable_slug,
             protected_slugs: (config as { protected_slugs?: string[] }).protected_slugs ?? [],

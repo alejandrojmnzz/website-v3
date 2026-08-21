@@ -388,7 +388,7 @@ export interface EditorConfig {
   value?: string;
   label?: string;
   multiple?: boolean;
-  required?: boolean;
+  required?: boolean | "attached";
 }
 
 interface DBConfig {
@@ -532,6 +532,11 @@ export interface ItemEditModalProps {
    * Defaults to `["image"]`.
    */
   imageFallbackFieldKeys?: string[];
+  /**
+   * When true (shared-layout detached entry), fields with `required: "attached"`
+   * are labeled optional while detached but stay editable.
+   */
+  entryDetached?: boolean;
 }
 
 export function ItemEditModal({
@@ -549,6 +554,7 @@ export function ItemEditModal({
   editorOverrides,
   imageFallbackPreviewSrc,
   imageFallbackFieldKeys,
+  entryDetached = false,
 }: ItemEditModalProps) {
   const imageFallbackKeys = new Set(
     (imageFallbackFieldKeys?.length ? imageFallbackFieldKeys : ["image"]).filter(Boolean),
@@ -1293,7 +1299,10 @@ export function ItemEditModal({
             valuePath={editorConfig?.value || "slug"}
             labelPath={editorConfig?.label || "name"}
             multiple={!!editorConfig?.multiple}
-            required={!!editorConfig?.required}
+            required={
+              editorConfig?.required === true ||
+              (editorConfig?.required === "attached" && !entryDetached)
+            }
             value={value}
             onChange={(next) => setValue(key, next)}
           />
@@ -1360,11 +1369,30 @@ export function ItemEditModal({
               const editorConfig = editor?.[key];
               const editorType = resolveEditorType(editorConfig);
               const useMarkdown = isMarkdownEditorType(editorType, key);
+              const req = editorConfig?.required;
+              const showAlwaysRequired = req === true;
+              const showAttachedRequired = req === "attached" && !entryDetached;
+              const showOptionalWhileDetached = req === "attached" && entryDetached;
               return (
                 <div key={key} className="space-y-1.5">
                   {!useMarkdown && (
                     <Label className="text-xs font-medium capitalize">
                       {key.replace(/_/g, " ")}
+                      {showAlwaysRequired || showAttachedRequired ? (
+                        <span className="text-primary ml-0.5" title={
+                          showAttachedRequired
+                            ? "Required when attached to the shared layout"
+                            : "Required for publish"
+                        }>*</span>
+                      ) : null}
+                      {showOptionalWhileDetached ? (
+                        <span
+                          className="ml-1.5 text-[10px] font-normal normal-case text-muted-foreground"
+                          data-testid={`label-optional-while-detached-${key}`}
+                        >
+                          Optional while detached
+                        </span>
+                      ) : null}
                     </Label>
                   )}
                   {editorConfig?.description && (

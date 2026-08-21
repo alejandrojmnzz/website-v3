@@ -90,10 +90,10 @@ describe("respond helpers", () => {
       priority: "required",
       reason:
         "Hard-refresh diagnostics for the live page (async — then poll get_diagnostics_job)",
-      args_hint: { slugs: ["my-slug"], freshness: "hard", site: "4geeks.com" },
+      args_hint: { slugs: ["my-slug"], freshness: "hard", confirm: true, site: "4geeks.com" },
     });
     const noSite = diagnosticsAfterGoLiveNextAction("other");
-    expect(noSite.args_hint).toEqual({ slugs: ["other"], freshness: "hard" });
+    expect(noSite.args_hint).toEqual({ slugs: ["other"], freshness: "hard", confirm: true });
   });
 });
 

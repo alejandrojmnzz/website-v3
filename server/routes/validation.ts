@@ -14,9 +14,11 @@ import { applyValidationRunToCache } from "../services/validationCachePostProces
 import {
   DIAGNOSTICS_SKIP_FOR_PER_PAGE,
   getDiagnosticsJob,
+  getPartialIssuesForRunningJob,
   isDiagnosticsRunning,
   listCacheIssues,
   listDiagnosticsJobs,
+  maybeReloadValidationCache,
   startDiagnosticsJob,
   type DiagnosticsJobRecord,
 } from "../services/diagnosticsJobService";
@@ -424,14 +426,22 @@ export function registerValidationRoutes(app: Express): void {
         ?? getDefaultContentRoot();
 
       const service = new ValidationService();
-      await service.buildContext({ contentRoot, ci: getCI(res) });
+      const context = await service.buildContext({ contentRoot, ci: getCI(res) });
 
-      const result = await service.runSingleValidator(
-        name,
-        includeArtifacts ?? false,
-      );
+      const result = await service.runValidators({
+        validators: [name],
+        includeArtifacts: includeArtifacts ?? false,
+      });
 
-      res.json(result);
+      // Same cache write path as POST /api/validation/run — otherwise Redirects /
+      // single-validator UI refreshes the badge but leaves stale diagnostics issues.
+      try {
+        await applyValidationRunToCache(getValidationCache(res), result, context);
+      } catch (err) {
+        log.warn({ err }, "ValidationCache post-process error (non-fatal)");
+      }
+
+      res.json(result.validators[0]);
     } catch (error) {
       log.error({ err: error }, "Validation error:");
       res.status(500).json({
@@ -718,7 +728,8 @@ export function registerValidationRoutes(app: Express): void {
   app.get("/api/validation/diagnostics-jobs/:jobId", async (req, res) => {
     const auth = await requireCapability(req, res, "metrics_view");
     if (!auth.authorized) return;
-    const result = getDiagnosticsJob(getContentRoot(res), req.params.jobId);
+    const contentRoot = getContentRoot(res);
+    const result = getDiagnosticsJob(contentRoot, req.params.jobId);
     if (result.status === "not_found") {
       return res.status(404).json({
         status: "not_found",
@@ -728,6 +739,22 @@ export function registerValidationRoutes(app: Express): void {
       });
     }
     const job = result.job!;
+    const running = result.status === "queued" || result.status === "running";
+    let partialIssues: Record<string, unknown> | undefined;
+    let partial = false;
+    if (running) {
+      try {
+        partialIssues = await getPartialIssuesForRunningJob({
+          contentRoot,
+          ci: getCI(res),
+          cache: getValidationCache(res),
+          job,
+        });
+        partial = true;
+      } catch (err) {
+        log.warn({ err, jobId: job.jobId }, "Failed to load mid-run partial issues");
+      }
+    }
     return res.json({
       status: result.status,
       job_id: job.jobId,
@@ -743,10 +770,13 @@ export function registerValidationRoutes(app: Express): void {
       },
       summary: job.summary,
       error: job.error,
-      issuesBySlug: job.resultIssuesBySlug,
+      issuesBySlug: running ? (partialIssues ?? {}) : job.resultIssuesBySlug,
+      partial: running ? partial : undefined,
+      message: running
+        ? "Job still running. issuesBySlug includes only URLs flushed since this job started (partial)."
+        : result.message,
       validators: job.validatorResults,
       cache_updated: result.status === "completed",
-      message: result.message,
       log: Array.isArray((job as DiagnosticsJobRecord).log)
         ? (job as DiagnosticsJobRecord).log
         : [],
@@ -772,6 +802,7 @@ export function registerValidationRoutes(app: Express): void {
         validators: req.body?.validators,
         include_artifacts: req.body?.include_artifacts,
         categories: req.body?.categories,
+        confirm: req.body?.confirm === true,
       });
 
       if (result.status === "busy") {
@@ -1060,7 +1091,45 @@ export function registerValidationRoutes(app: Express): void {
       let schemaHtml = "";
       let parsedSchemas: any[] = [];
       try {
-        schemaHtml = await generateSsrSchemaHtml(url, getCI(res), getContentRoot(res));
+        // Prefer anonymous SSR HTML page cache (what was actually served) for
+        // JSON-LD inspection; fall back to regenerating schema tags only.
+        const site = res.locals.site as { contentRootName?: string } | undefined;
+        const siteId =
+          site?.contentRootName ?? path.basename(getContentRoot(res)) ?? "default";
+        const {
+          buildHtmlCacheKey,
+          getCachedHtml,
+        } = await import("../html-page-cache");
+        const canonical = getCanonicalUrl(file);
+        const fileMeta = (file.meta || {}) as Record<string, unknown>;
+        const pathCandidates = new Set<string>([
+          canonical,
+          url.split("?")[0].split("#")[0],
+        ]);
+        if (Array.isArray(fileMeta.redirects)) {
+          for (const r of fileMeta.redirects) {
+            if (typeof r === "string") pathCandidates.add(r);
+          }
+        }
+        if (file.slug === "home") {
+          pathCandidates.add(`/${file.locale === "_common" ? "en" : file.locale}`);
+          pathCandidates.add("/");
+        }
+        for (const pathname of pathCandidates) {
+          if (typeof pathname !== "string" || !pathname.startsWith("/")) continue;
+          const cached = getCachedHtml(buildHtmlCacheKey(siteId, pathname, "live"));
+          if (cached?.html?.includes("application/ld+json")) {
+            schemaHtml = cached.html;
+            break;
+          }
+        }
+        if (!schemaHtml) {
+          schemaHtml = await generateSsrSchemaHtml(
+            canonical,
+            getCI(res),
+            getContentRoot(res),
+          );
+        }
         const scriptRegex =
           /<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g;
         let match: RegExpExecArray | null;

@@ -11,12 +11,6 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { PageDiagnostics } from "../types";
@@ -91,48 +85,89 @@ function isInternalUrlPath(path: string): boolean {
   return path.startsWith("/") && !path.startsWith("//") && !isContentFilePath(path);
 }
 
+/**
+ * In-dialog relative menu (not Radix DropdownMenu).
+ * Portaled DropdownMenu content sits outside Dialog's focus scope; the Dialog
+ * focus trap steals focus back and the menu closes immediately.
+ */
 function InternalPathActions({ path }: { path: string }) {
   const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   return (
-    <DropdownMenu modal={false}>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="inline font-mono text-primary underline underline-offset-2 hover:text-primary/80"
-          onClick={(e) => e.stopPropagation()}
-          data-testid="button-issue-path-menu"
+    <span ref={menuRef} className="relative inline-block">
+      <button
+        type="button"
+        className="inline font-mono text-primary underline underline-offset-2 hover:text-primary/80"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((prev) => !prev);
+        }}
+        data-testid="button-issue-path-menu"
+      >
+        {path}
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute left-0 top-full z-[10001] mt-1 w-44 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
         >
-          {path}
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="z-[10001] w-44">
-        <DropdownMenuItem
-          className="text-[13px]"
-          onClick={() => {
-            void navigator.clipboard.writeText(path).then(
-              () => toast({ title: "Copied", description: path }),
-              () => toast({ title: "Copy failed", variant: "destructive" }),
-            );
-          }}
-          data-testid="menu-issue-path-copy"
-        >
-          <IconCopy className="h-3.5 w-3.5" />
-          Copy
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild className="text-[13px]">
+          <button
+            type="button"
+            role="menuitem"
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-[13px] hover-elevate"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+              void navigator.clipboard.writeText(path).then(
+                () => toast({ title: "Copied", description: path }),
+                () => toast({ title: "Copy failed", variant: "destructive" }),
+              );
+            }}
+            data-testid="menu-issue-path-copy"
+          >
+            <IconCopy className="h-3.5 w-3.5" />
+            Copy
+          </button>
           <a
+            role="menuitem"
             href={path}
             target="_blank"
             rel="noopener noreferrer"
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-[13px] hover-elevate"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+            }}
             data-testid="menu-issue-path-open"
           >
             <IconExternalLink className="h-3.5 w-3.5" />
             Open in new tab
           </a>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </div>
+      )}
+    </span>
   );
 }
 

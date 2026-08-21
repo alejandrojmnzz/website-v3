@@ -28,6 +28,15 @@ function formatRedirectSourceLabel(filePath: string): string {
   return `${formatSitePath(filePath)} (live)`;
 }
 
+/** Appended to every redirects-validator suggestion so agents/staff know how to refresh the cache. */
+const REDIRECTS_SITE_WIDE_REFRESH =
+  ' Then re-run site-wide redirects validation (Redirects admin / Global Health, or POST /api/validation/run with validators: ["redirects"]). Page Diagnostics "Run validation" does not refresh redirect issues.';
+
+function redirectSuggestion(action: string): string {
+  const base = action.trim().replace(/\.+\s*$/, "");
+  return `${base}.${REDIRECTS_SITE_WIDE_REFRESH}`;
+}
+
 function isRegexPattern(p: string): boolean {
   return /\(.*\)|\[.*\]|\.\*|\.\+|\\d|\\w|\\s|\{\d+[,}]/.test(p);
 }
@@ -98,7 +107,7 @@ export const redirectValidator: Validator = {
             code: "SELF_REDIRECT",
             message: `Self-redirect detected: "${normalizedRedirect}" redirects to itself`,
             file: file.filePath,
-            suggestion: "Remove this redirect or change the target URL",
+            suggestion: redirectSuggestion("Remove this redirect or change the target URL"),
           });
           continue;
         }
@@ -123,7 +132,7 @@ export const redirectValidator: Validator = {
               code: "REDIRECT_CONFLICT",
               message: `Redirect conflict: "${normalizedRedirect}" is claimed by both "${fileLabel}" and "${existingLabel}"`,
               file: file.filePath,
-              suggestion: "Remove one of the conflicting redirects",
+              suggestion: redirectSuggestion("Remove one of the conflicting redirects"),
             });
           } else {
             const commonPath = isCommon ? fileLabel : existingLabel;
@@ -133,7 +142,9 @@ export const redirectValidator: Validator = {
               code: "REDIRECT_OVERLAP",
               message: `Redirect "${normalizedRedirect}" exists in both "${commonPath}" and "${localePath}"`,
               file: file.filePath,
-              suggestion: "Keep the redirect in only one place: _common.yml for all languages, or locale file for a specific language",
+              suggestion: redirectSuggestion(
+                "Keep the redirect in only one place: _common.yml for all languages, or locale file for a specific language",
+              ),
             });
           }
           continue;
@@ -145,7 +156,7 @@ export const redirectValidator: Validator = {
             code: "REDIRECT_OVERWRITES_CONTENT",
             message: `Redirect "${normalizedRedirect}" conflicts with an existing content URL`,
             file: file.filePath,
-            suggestion: "Choose a different redirect source URL",
+            suggestion: redirectSuggestion("Choose a different redirect source URL"),
           });
           continue;
         }
@@ -179,7 +190,7 @@ export const redirectValidator: Validator = {
           code: "REDIRECT_CONFLICT",
           message: `Redirect conflict: "${normalizedFrom}" in custom-redirects.yml conflicts with "${existing.source.filePath}"`,
           file: customFile,
-          suggestion: "Remove one of the conflicting redirects",
+          suggestion: redirectSuggestion("Remove one of the conflicting redirects"),
         });
         continue;
       }
@@ -190,7 +201,7 @@ export const redirectValidator: Validator = {
           code: "REDIRECT_OVERWRITES_CONTENT",
           message: `Custom redirect "${normalizedFrom}" conflicts with an existing content URL`,
           file: customFile,
-          suggestion: "Choose a different redirect source URL",
+          suggestion: redirectSuggestion("Choose a different redirect source URL"),
         });
         continue;
       }
@@ -201,7 +212,7 @@ export const redirectValidator: Validator = {
           code: "CUSTOM_REDIRECT_MISSING_DEST",
           message: `Custom redirect "${normalizedFrom}" has no destination URL`,
           file: customFile,
-          suggestion: "Add a valid destination URL",
+          suggestion: redirectSuggestion("Add a valid destination URL"),
         });
         continue;
       }
@@ -231,7 +242,7 @@ export const redirectValidator: Validator = {
             type: "error",
             code: "REDIRECT_LOOP",
             message: `Redirect loop detected: ${item.path.join(" -> ")} -> ${item.url}`,
-            suggestion: "Break the redirect chain by removing one of the redirects",
+            suggestion: redirectSuggestion("Break the redirect chain by removing one of the redirects"),
           });
           continue;
         }
@@ -264,7 +275,9 @@ export const redirectValidator: Validator = {
                 code: "REGEX_SHADOWED",
                 message: `Pattern "${specific.entry.from}" (position ${specific.index + 1}) is shadowed by broader pattern "${broader.entry.from}" (position ${broader.index + 1}) — the specific rule will never match`,
                 file: customFile,
-                suggestion: `Move "${specific.entry.from}" above "${broader.entry.from}" in custom-redirects.yml, or use the reorder arrows in the Redirects editor`,
+                suggestion: redirectSuggestion(
+                  `Move "${specific.entry.from}" above "${broader.entry.from}" in custom-redirects.yml, or use the reorder arrows in the Redirects editor`,
+                ),
               });
             }
           }

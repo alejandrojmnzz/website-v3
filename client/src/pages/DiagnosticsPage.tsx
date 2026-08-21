@@ -234,7 +234,55 @@ type JobStartResponse = {
   validators?: ValidatorResult[];
   issuesBySlug?: Record<string, unknown>;
   scope?: { processed?: number; total?: number; staleUrlCount?: number; urlCount?: number };
+  scoped?: boolean;
+  last_site_wide_run_at?: string | null;
+  last_site_wide_run_ago?: string;
+  last_site_wide_duration_ms?: number | null;
+  last_site_wide_duration_human?: string | null;
+  last_site_wide_url_count?: number | null;
 };
+
+type DiagnosticsConfirmInfo = {
+  message: string;
+  scoped: boolean;
+  last_site_wide_run_ago: string;
+  last_site_wide_duration_human: string | null;
+  last_site_wide_url_count: number | null;
+};
+
+async function postDiagnosticsJobs(
+  body: Record<string, unknown>,
+): Promise<JobStartResponse & { httpStatus: number }> {
+  const res = await apiFetch("/api/validation/diagnostics-jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    credentials: "include",
+  });
+  const data = (await res.json()) as JobStartResponse;
+  return { ...data, httpStatus: res.status };
+}
+
+function diagnosticsConfirmCopy(info: DiagnosticsConfirmInfo): { title: string; body: string } {
+  const duration = info.last_site_wide_duration_human ?? "unknown";
+  const ago = info.last_site_wide_run_ago || "never";
+  const urlBit =
+    info.last_site_wide_url_count != null ? ` (${info.last_site_wide_url_count} URLs)` : "";
+  if (info.scoped) {
+    return {
+      title: "Run scoped diagnostics?",
+      body:
+        `This is a scoped re-check (usually faster). Last full site-wide run was ${ago} and took ${duration}${urlBit} (reference only).`,
+    };
+  }
+  return {
+    title: "Run diagnostics?",
+    body:
+      ago === "never"
+        ? "No full site-wide diagnostics run is recorded yet. This can take several minutes depending on site size."
+        : `Last full site-wide run was ${ago} and took ${duration}${urlBit}.`,
+  };
+}
 
 type JobLogLine = {
   t: number;
@@ -311,39 +359,37 @@ function RecheckIssueButton({
   validator,
   category,
   onResolved,
+  startWithConfirm,
 }: {
   url: string;
   code: string;
   validator?: string;
   category?: string;
   onResolved: () => void;
+  startWithConfirm: (body: Record<string, unknown>) => Promise<JobStartResponse>;
 }) {
   const [state, setState] = useState<RecheckState>("idle");
 
   const handleRecheck = async () => {
     setState("running");
     try {
-      const startRes = await apiFetch("/api/validation/diagnostics-jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          urls: [url],
-          freshness: "hard",
-          ...(validator ? { validators: [validator] } : {}),
-          ...(category ? { categories: [category] } : {}),
-        }),
-        credentials: "include",
+      const startData = await startWithConfirm({
+        urls: [url],
+        freshness: "hard",
+        ...(validator ? { validators: [validator] } : {}),
+        ...(category ? { categories: [category] } : {}),
       });
-      if (!startRes.ok) {
+      if (startData.status === "busy") {
         setState("error");
         return;
       }
-      const startData = (await startRes.json()) as { job_id?: string; status?: string };
-      if (!startData.job_id) {
-        setState("error");
-        return;
+      if (startData.status !== "cached") {
+        if (!startData.job_id) {
+          setState("error");
+          return;
+        }
+        await pollDiagnosticsJob(startData.job_id);
       }
-      await pollDiagnosticsJob(startData.job_id);
       // Check if the issue still exists in the refreshed cache
       const issuesRes = await apiFetch(
         `/api/validation/cache-issues?url=${encodeURIComponent(url)}`,
@@ -368,7 +414,11 @@ function RecheckIssueButton({
         // query, so we must invalidate it here too.
         onResolved();
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.message === "cancelled") {
+        setState("idle");
+        return;
+      }
       setState("error");
     }
   };
@@ -418,12 +468,14 @@ function RecheckFileIssueButton({
   category,
   validator,
   onResolved,
+  startWithConfirm,
 }: {
   file: string;
   code: string;
   category?: string;
   validator?: string;
   onResolved: () => void;
+  startWithConfirm: (body: Record<string, unknown>) => Promise<JobStartResponse>;
 }) {
   const [state, setState] = useState<RecheckState>("idle");
 
@@ -437,16 +489,18 @@ function RecheckFileIssueButton({
       };
       if (category) body.categories = [category];
       if (validator) body.validators = [validator];
-      const startRes = await apiFetch("/api/validation/diagnostics-jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        credentials: "include",
-      });
-      if (!startRes.ok) { setState("error"); return; }
-      const startData = (await startRes.json()) as { job_id?: string; status?: string };
-      if (!startData.job_id) { setState("error"); return; }
-      await pollDiagnosticsJob(startData.job_id);
+      const startData = await startWithConfirm(body);
+      if (startData.status === "busy") {
+        setState("error");
+        return;
+      }
+      if (startData.status !== "cached") {
+        if (!startData.job_id) {
+          setState("error");
+          return;
+        }
+        await pollDiagnosticsJob(startData.job_id);
+      }
       const issuesRes = await apiFetch(
         `/api/validation/cache-issues?file=${encodeURIComponent(file)}`,
         { credentials: "include" },
@@ -468,7 +522,11 @@ function RecheckFileIssueButton({
         // cache so the "detected X ago" label updates.
         onResolved();
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.message === "cancelled") {
+        setState("idle");
+        return;
+      }
       setState("error");
     }
   };
@@ -622,9 +680,48 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const [jobPanel, setJobPanel] = useState<JobPanelState | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [clearCacheOpen, setClearCacheOpen] = useState(false);
+  const [confirmGate, setConfirmGate] = useState<{
+    info: DiagnosticsConfirmInfo;
+    resolve: (ok: boolean) => void;
+  } | null>(null);
+  const [confirmAdvancedOpen, setConfirmAdvancedOpen] = useState(false);
   const jobLogScrollRef = useRef<HTMLDivElement>(null);
   const hideJobPanelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { resolveModalOpen, setResolveModalOpen, activeConflict, openResolver } = useRedirectConflictResolver();
+
+  const startWithConfirm = async (body: Record<string, unknown>): Promise<JobStartResponse> => {
+    let data = await postDiagnosticsJobs(body);
+    if (data.httpStatus === 409 || data.status === "busy") {
+      return data;
+    }
+    if (data.status === "needs_confirm") {
+      const ok = await new Promise<boolean>((resolve) => {
+        setConfirmAdvancedOpen(false);
+        setConfirmGate({
+          info: {
+            message: data.message || "Confirm to run diagnostics.",
+            scoped: data.scoped === true,
+            last_site_wide_run_ago: data.last_site_wide_run_ago || "never",
+            last_site_wide_duration_human: data.last_site_wide_duration_human ?? null,
+            last_site_wide_url_count: data.last_site_wide_url_count ?? null,
+          },
+          resolve,
+        });
+      });
+      setConfirmGate(null);
+      if (!ok) {
+        throw new Error("cancelled");
+      }
+      data = await postDiagnosticsJobs({ ...body, confirm: true });
+    }
+    if (data.httpStatus === 409 || data.status === "busy") {
+      return data;
+    }
+    if (data.httpStatus >= 400 && data.status !== "needs_confirm") {
+      throw new Error(data.message || "Failed to start diagnostics job");
+    }
+    return data;
+  };
 
   useEffect(() => {
     const el = jobLogScrollRef.current;
@@ -700,18 +797,9 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const startJobMutation = useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
       if (hideJobPanelTimer.current) clearTimeout(hideJobPanelTimer.current);
-      const res = await apiFetch("/api/validation/diagnostics-jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        credentials: "include",
-      });
-      const data = (await res.json()) as JobStartResponse;
-      if (res.status === 409 || data.status === "busy") {
+      const data = await startWithConfirm(body);
+      if (data.status === "busy") {
         throw new Error(data.message || "Another diagnostics job is already running for this site.");
-      }
-      if (!res.ok) {
-        throw new Error((data as { message?: string }).message || "Failed to start diagnostics job");
       }
       if (data.status === "cached") {
         return { kind: "cached" as const, data };
@@ -770,6 +858,9 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
       });
     },
     onError: (err) => {
+      if (err instanceof Error && err.message === "cancelled") {
+        return;
+      }
       setJobPanel((prev) =>
         prev
           ? {
@@ -810,22 +901,13 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
   const runSingleMutation = useMutation({
     mutationFn: async (name: string) => {
       if (hideJobPanelTimer.current) clearTimeout(hideJobPanelTimer.current);
-      const res = await apiFetch("/api/validation/diagnostics-jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          validators: [name],
-          include_artifacts: true,
-          freshness: "hard",
-        }),
-        credentials: "include",
+      const data = await startWithConfirm({
+        validators: [name],
+        include_artifacts: true,
+        freshness: "hard",
       });
-      const data = (await res.json()) as JobStartResponse;
-      if (res.status === 409 || data.status === "busy") {
+      if (data.status === "busy") {
         throw new Error(data.message || "Another diagnostics job is already running.");
-      }
-      if (!res.ok) {
-        throw new Error((data as { message?: string }).message || "Failed to start job");
       }
       if (data.status === "cached") {
         return { name };
@@ -879,6 +961,9 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
       });
     },
     onError: (err) => {
+      if (err instanceof Error && err.message === "cancelled") {
+        return;
+      }
       setJobPanel((prev) =>
         prev
           ? {
@@ -1074,9 +1159,10 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
             validator coverage and fully-covered URLs. Under Refresh, an in-flight
             job shows while queued/running; otherwise the last <em>site-wide</em> run (Refresh / Hard refresh,
             not a page save). Refresh / Hard refresh / Re-run validator update the store via a{" "}
-            <strong className="text-foreground font-medium">background worker</strong>; the job panel shows
-            milestones (fixed height, scrolls). Cached issues refresh when the job finishes. Delete cache
-            wipes the store until the next refresh. One job runs at a time per site.
+            <strong className="text-foreground font-medium">background worker</strong>; starting a new job asks for
+            confirm and shows the last full site-wide duration. The job panel shows milestones (fixed height, scrolls).
+            Cached issues refresh when the job finishes. Delete cache wipes the store until the next refresh.
+            One job runs at a time per site.
           </p>
           <button
             type="button"
@@ -1088,12 +1174,13 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
           </button>
           {showAdvanced && (
             <ul className="list-disc pl-5 text-xs space-y-1">
-              <li><code>server/services/diagnosticsJobService.ts</code> — parent job orchestration + IPC</li>
+              <li><code>server/services/diagnosticsJobService.ts</code> — parent job orchestration + IPC + confirm gate (<code>needs_confirm</code>)</li>
               <li><code>scripts/validation/diagnostics-worker.ts</code> — forked worker that runs validators</li>
               <li><code>{"{contentRoot}/validation-cache.json"}</code> — issue cache (GCS <code>{"{site}/sync/validation-cache.json"}</code> in prod). <code>lastFullRunAt</code> (per URL / any full stamp) vs <code>lastSiteWideRunAt</code> (Refresh / Hard refresh / site-wide validators)</li>
               <li><code>scripts/validation/shared/runClass.ts</code> — <code>ENTRY_LOCAL_VALIDATOR_NAMES</code> drives coverage denominator</li>
-              <li><code>{"{contentRoot}/.cache/diagnostics-jobs/"}</code> — job envelopes + results files</li>
-              <li>API: <code>POST/GET /api/validation/diagnostics-jobs</code>, <code>GET /api/validation/cache-issues</code>, <code>GET /api/validation/cache-freshness</code>, <code>GET /api/validation/cache-freshness-urls</code></li>
+              <li><code>{"{contentRoot}/.cache/diagnostics-jobs/"}</code> — job envelopes + results files (duration stats for confirm dialog)</li>
+              <li>API: <code>POST/GET /api/validation/diagnostics-jobs</code> (<code>confirm: true</code> when starting), <code>GET /api/validation/cache-issues</code>, <code>GET /api/validation/cache-freshness</code>, <code>GET /api/validation/cache-freshness-urls</code></li>
+              <li>MCP <code>run_entry_diagnostics</code> — same confirm gate (<code>confirm_run_diagnostics</code>); mid-run poll returns URLs flushed since job start only</li>
             </ul>
           )}
         </CardContent>
@@ -1275,6 +1362,82 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                 <Trash2 className="h-4 w-4" />
               )}
               Delete cache
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!confirmGate}
+        onOpenChange={(open) => {
+          if (!open && confirmGate) {
+            confirmGate.resolve(false);
+            setConfirmGate(null);
+          }
+        }}
+      >
+        <DialogContent data-testid="dialog-confirm-diagnostics">
+          <DialogHeader>
+            <DialogTitle>
+              {confirmGate ? diagnosticsConfirmCopy(confirmGate.info).title : "Run diagnostics?"}
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  {confirmGate
+                    ? diagnosticsConfirmCopy(confirmGate.info).body
+                    : "Confirm to start a diagnostics job."}
+                </p>
+                <p className="text-foreground">
+                  Diagnostics can take minutes on a full site. Confirm only when you want a new background job.
+                </p>
+                <button
+                  type="button"
+                  className="text-xs text-primary underline-offset-2 hover:underline"
+                  onClick={() => setConfirmAdvancedOpen((v) => !v)}
+                  data-testid="button-diagnostics-confirm-read-more"
+                >
+                  {confirmAdvancedOpen ? "Hide advanced" : "Read more (advanced)"}
+                </button>
+                {confirmAdvancedOpen && (
+                  <ul className="list-disc pl-5 text-xs space-y-1 text-left">
+                    <li>
+                      <code className="text-[10px]">server/services/diagnosticsJobService.ts</code> — confirm gate +
+                      last full site-wide duration from job envelopes
+                    </li>
+                    <li>
+                      <code className="text-[10px]">{"{contentRoot}/.cache/diagnostics-jobs/"}</code> — job envelopes
+                      used for duration stats
+                    </li>
+                    <li>
+                      MCP <code className="text-[10px]">run_entry_diagnostics</code> uses the same gate (
+                      <code className="text-[10px]">confirm: true</code> /{" "}
+                      <code className="text-[10px]">confirm_run_diagnostics</code>)
+                    </li>
+                  </ul>
+                )}
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                confirmGate?.resolve(false);
+                setConfirmGate(null);
+              }}
+              data-testid="button-cancel-diagnostics-confirm"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                confirmGate?.resolve(true);
+                setConfirmGate(null);
+              }}
+              data-testid="button-confirm-diagnostics-run"
+            >
+              Run diagnostics
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1674,6 +1837,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                           code={issue.code}
                           validator={issue.validator}
                           category={issue.category}
+                          startWithConfirm={startWithConfirm}
                           onResolved={() =>
                             void queryClient.invalidateQueries({
                               queryKey: ["/api/validation/cache-issues"],
@@ -1686,6 +1850,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                           code={issue.code}
                           category={issue.category}
                           validator={issue.validator}
+                          startWithConfirm={startWithConfirm}
                           onResolved={() =>
                             void queryClient.invalidateQueries({
                               queryKey: ["/api/validation/cache-issues"],
